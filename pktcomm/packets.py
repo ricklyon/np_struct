@@ -39,36 +39,36 @@ class Packet(cstruct):
     #######
 
     def get_size(self):
-        """ Reads and returns the size field of the packet
+        """ Reads and returns packet size field
         """
         raise NotImplementedError()
 
     def set_size(self, value):
-        """ Writes the size field of the packet to value
+        """ Writes value to the packet size field
         """
         raise NotImplementedError()
 
     def get_type(self):
-        """ Reads and returns the unique packet type field
+        """ Reads and returns unique packet type field
         """
         raise NotImplementedError()
 
     def set_type(self, value):
-        """ Writes the unique packet type feild to value
+        """ Writes unique value to packet type field
         """
         raise NotImplementedError()
 
     def build_header(self, **params):
         """ Optional. Populates packet header with values from params. Called just before pkt_write().
-            'params' store all kwargs passed into the __init__ function
-            of the Packet interface, as well as any passed into pkt_write() or pkt_sendrecv().
+            all kwargs passed into the __init__ function of the Packet interface, 
+            as well as any passed into pkt_write() or pkt_sendrecv() can be found in params
         """
         pass
 
     def check_header(self, **params):
         """ Optional. Performs checks on incoming packet, (e.g. destination address matches interface address).
             Called during pkt_read().
-            'params' store all kwargs passed into the __init__ function of the Packet interface.
+            all kwargs passed into the __init__ function of the Packet interface can be found in params
         """
         pass
 
