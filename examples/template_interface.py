@@ -1,4 +1,4 @@
-from comm.packets import PacketComm
+from pktcomm.packets import PacketComm
 import serial
 import time
 
