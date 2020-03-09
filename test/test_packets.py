@@ -22,6 +22,17 @@ class pktheader(cstruct):
     src = uint8()
     ptype = uint8(), pkt_types
 
+
+class pktheader(cfeild):
+    size = slice(3,0)
+    dest = slice(4,3)
+    src =  slice(3,0)
+    ptype = slice(3,0)
+
+class command(cstruct):
+    state = uint32(), a_bfeild
+
+
 class BasePacket(Packet):
     hdr = pktheader()
 
