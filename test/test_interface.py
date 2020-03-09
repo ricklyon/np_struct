@@ -13,7 +13,7 @@ def send_ex():
     pkt = tpkts.expkt()
     pkt.data1 += 4
     pkt.data2 = -5
-    pkt.data3 = 9.1
+    pkt.data3 = pkt.data2 * 3
     return intf.pkt_sendrecv(pkt, dest=0x0F)
 
 def send_ack():
@@ -22,4 +22,4 @@ def send_ack():
     r = intf.pkt_sendrecv(pkt, dest=0x03)
     return r
 
-print(send_ack())
+print(send_ex())
