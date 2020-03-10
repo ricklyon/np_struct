@@ -122,9 +122,9 @@ class PacketComm(object):
     def pkt_sendrecv(self, packet, **kwargs):
         self.flush(False)
         self.pkt_write(packet, **kwargs)
-        return self.pkt_read()
+        return self.pkt_read(**kwargs)
 
-    def pkt_read(self):
+    def pkt_read(self, **kwargs):
         
         ## read length of base packet from interface, and unpack btyes into base_packet
         ## if bytes does not equal the base packet length, an error will be thrown by the underlying struct unpack method,
@@ -136,7 +136,7 @@ class PacketComm(object):
         pkt_len = self._pkt_base.get_size()
 
         ## allow user to catch errors in header
-        self._pkt_base.check_header(**self._pkt_header_params)
+        self._pkt_base.check_header(**{ **kwargs, **self._pkt_header_params})
         
         ## there is an error if the size from the header is less than the length of the base packet length
         if (pkt_len < self._pkt_base_len):

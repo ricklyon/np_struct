@@ -23,14 +23,10 @@ class pktheader(cstruct):
     ptype = uint8(), pkt_types
 
 
-class pktheader(cfeild):
-    size = slice(3,0)
-    dest = slice(4,3)
-    src =  slice(3,0)
-    ptype = slice(3,0)
-
 class command(cstruct):
-    state = uint32(), a_bfeild
+    state1 = uint8(), slice(3,0)
+    state2 = uint8(), slice(5,4)
+    state3 = uint8(), slice(7,6)
 
 
 class BasePacket(Packet):
@@ -66,10 +62,16 @@ class expkt(BasePacket):
     data2 = int16()
     data3 = float64()
 
-class ack(BasePacket):	
+class ack(BasePacket):
     hdr = pktheader()
     ack_type = uint8(), pkt_types
     ack_code = uint8(), ack_codes
 
 # register the values in pkt_types to the DPKPacket class 
 Packet.register_packets(BasePacket, pkt_types)
+
+c = expkt()
+c.data2 = 9
+b = bytes(c)
+c.unpack(b)
+print(c)

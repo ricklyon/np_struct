@@ -15,22 +15,28 @@ class StructMeta(type):
         ## these will be added to the instance dictionary
         fields = {}
         enums = {}
+        slices = {}
         for i, (key, value) in enumerate(dct.items()):
             
             _enum = None
+            _slice = None
 
             if isinstance(value, tuple) and len(value) == 2:
-                value, _enum = value
+
+                if isinstance(value[1], slice):
+                    value, _slice = value
+                else:
+                    value, _enum = value
 
             if isinstance(value, (np.ndarray, supported_dtypes, cstruct)):
 
-                if key in ['value', 'dtype'] or key[0] == '_':
+                if key in ['value', 'dtype', 'shape'] or key[0] == '_':
                     raise RuntimeError('Protected field name: ({})'.format(key))
                 
                 if not isinstance(value, cstruct) and len(value.shape) == 0:
                     value = np.array([value], dtype=value.dtype)
 
-                fields[key], enums[key]  = value, _enum
+                fields[key], enums[key], slices[key]  = value, _enum, _slice
 
         for key, value in fields.items():
             dct.pop(key)
@@ -41,6 +47,7 @@ class StructMeta(type):
         dct['_printwidth'] = max(len(k) for k in fields.keys()) + 3
         dct['_oldcls'] = cls
         dct['_enum'] = enums
+        dct['_slice'] = slices
 
         ## call type's __new__ to create new class definition with updated class dictionary
         ## call __new__ of class definition to create class instance
@@ -61,39 +68,55 @@ class cstruct(metaclass=StructMeta):
         self._defs = dict(**vars(self))
         self._order = order
         
+        self.shape = ()
         self.dtype = self._build_dtype()
         self._value = self._build_value()
         self._bsize = len(bytes(self))
+        
     
     def _build_dtype(self):
         dtype = []
         for k,v in self._defs.items():
-            if isinstance(v, cstruct):
-                dtype.append((k, v.dtype))
-            else:
-                dtype.append((k, v.dtype, v.shape))
+            dtype.append((k, v.dtype, v.shape))
 
         return np.dtype(dtype)
 
     def _build_value(self):
         value = []
         for k,v in self._defs.items():
-            if isinstance(v, cstruct):
-                value.append(v.value)
-            elif self._enum[k] != None:
-                value.append([self._enum[k](vv).value for vv in v])
-            else:
-                value.append(v)
+            value.append(self._get_feild_value(k,v))
 
         return np.array([tuple(value)], dtype=self.dtype)
 
+    def _build_bitfeilds(self):
+        base_ = None
+        for k,v in self._defs.items():
+            if self._slice[key] != None:
+                if base_ == None:
+                    base_ = v
+                elif v.__class__ == base_.__class__:
+                    base_ 
+                else:
+                    pass
+
+    def _get_feild_value(self, key, item):
+        if isinstance(item, cstruct):
+            return item.value
+        elif self._enum[key] != None:
+            return [self._enum[key](v).value for v in item]
+        else:
+            return item
+
+    def __setitem__(self, key, value):
+        self.value[key] = value
+            
     def _unpack_value(self, value):
 
         for i, (k,v) in enumerate(self._defs.items()):
-            if isinstance(v, cstruct):
-                v.value = value[i]
-            else:
-                v[:] = value[i]
+            # if isinstance(v, cstruct):
+            #     v.value = value[i]
+            # else:
+            v[:] = value[i]
 
     def __len__(self):
         return len(self.value[0])
