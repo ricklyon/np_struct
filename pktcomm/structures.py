@@ -222,7 +222,10 @@ class cstruct(metaclass=StructMeta):
                     str3 = str([self._enum[k](vv) for vv in v])
                 else:
                     str3 = str(v)
-                str1 = str(v.dtype) + str3 + ' (0x' + str(bytes(v).hex().upper()) + ')'
+                
+                bstr1 = '0x' + str(bytes(v).hex().upper())
+                bstr1 = '' if len(bstr1) > 17 else ' (' + bstr1 + ')'
+                str1 = str(v.dtype) + str3 + bstr1
 
             str0 += tabs + str(k)+':'+' '*(self._printwidth-len(str(k))-1)+str1+'\n'
         return str0[:-1]
