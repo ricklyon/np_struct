@@ -66,89 +66,60 @@ class cstruct(metaclass=StructMeta):
     def __init__(self, order='<', **kwargs):
     
         self._defs = dict(**vars(self))
+        self._defs_keys = [k for k,v in self._defs.items()]
         self._defs_list = []
+        self._bfeild_list = []
+        dtype = []
 
+        base = None
         for k,v in self._defs.items():
-            _enum, _slice = self._enum[k], self._slice[k]
-            self._defs_list.append([k, v, _enum, _slice, None])
 
-        self._create_bitfeilds()
+            if self._slice[k] != None:
+                if np.any(base == None) or base.dtype != v.dtype:
+                    base = v.copy()
+                    self._defs_list.append((k, base, None))
+                    dtype.append((k, v.dtype, v.shape))
+
+                self._bfeild_list.append((k, v, self._slice[k], base))
+            else:
+                base = None
+                self._defs_list.append((k, v, self._enum[k]))
+                dtype.append((k, v.dtype, v.shape))
+
         self._order = order
         self.shape = ()
-        self.dtype = self._build_dtype()
+        self.dtype = np.dtype(dtype)
         self._value = self._build_value()
         self._bsize = len(bytes(self))
         
-    
-    def _build_dtype(self):
-        dtype = []
-        for (k, v, _enum, _slice, bref) in self._defs_list:
-            if bref != None and bref != k:
-                continue
-            dtype.append((k, v.dtype, v.shape))
-        # for k,v in self._defs.items():
-        #     dtype.append((k, v.dtype, v.shape))
-
-        return np.dtype(dtype)
 
     def _build_value(self):
 
         self._build_bitfeilds()
         value = []
-        for (k, v, _enum, _slice, bref) in self._defs_list:
-            if bref != None and bref != k:
-                continue
+        for (k, v, _enum) in self._defs_list:
             value.append(self._get_feild_value(k,v))
-        # for k,v in self._defs.items():
-        #     value.append(self._get_feild_value(k,v))
 
         return np.array([tuple(value)], dtype=self.dtype)
 
     def _build_bitfeilds(self):
-        for (k, v, _enum, _slice, bref) in self._defs_list:
-            if bref != None:
-                size = len(bytes(v))
-                maxstart = (size*8)-1
-                maxvalue =  2**(size*8)-1
+        for (k, v, _slice, bref) in self._bfeild_list:
+            size = len(bytes(v))
+            maxstart = (size*8)-1
+            maxvalue =  2**(size*8)-1
 
-                rmask = maxvalue >> (maxstart-_slice.start)
-                lmask = maxvalue << _slice.stop
+            rmask = maxvalue >> (maxstart-_slice.start)
+            lmask = maxvalue << _slice.stop
 
-                mask = lmask & rmask
+            mask = lmask & rmask
 
-                bref_val = (self._defs[bref]).copy()
+            bref_val = bref.copy()
 
-                setval = (v << _slice.stop) & mask
+            setval = (v << _slice.stop) & mask
 
-                bref_val = bref_val & (~mask)
-                bref_val = bref_val | setval
-                self._defs[bref][:] = bref_val
-
-    def _create_bitfeilds(self):
-        base_ = None
-        i = 0
-        while i <= len(self._defs_list) -1:
-            k, v, _enum, _slice, bref = self._defs_list[i]
-
-            if _slice != None:
-                i = self._trace_slices(i)
-            else:
-                i += 1
-
-    def _trace_slices(self, base_idx):
-        base_k, base, base_enum, base_slice, bref = self._defs_list[base_idx]
-        i = base_idx
-        while i <= len(self._defs_list) -1:
-            k, v, _enum, _slice, bref = self._defs_list[i]
-
-            if _slice != None and (v.dtype == base.dtype):
-                self._defs_list[i][-1] = base_k
-                i += 1
-            else:
-                #i += 1
-                break
-                
-        return i
+            bref_val = bref_val & (~mask)
+            bref_val = bref_val | setval
+            bref[:] = bref_val
 
     def _get_feild_value(self, key, item):
         if isinstance(item, cstruct):
@@ -157,32 +128,29 @@ class cstruct(metaclass=StructMeta):
             return [self._enum[key](v).value for v in item]
         else:
             return item
-
-    # def __setitem__(self, key, value):
-    #     self.value[key] = value
             
     def _unpack_value(self, value):
 
-        i = 0
-        for (k, v, _enum, _slice, bref) in self._defs_list:
+        for i, (k, v, _enum) in enumerate(self._defs_list):
             if isinstance(v, cstruct):
                 v.value = value[i]
-                i += 1
-            elif bref == None or bref == k:
-                v[:] = value[i]
-                i += 1
             else:
-                size = len(bytes(v))
-                maxstart = (size*8)-1
-                maxvalue =  2**(size*8)-1
+                v[:] = value[i]
 
-                rmask = maxvalue >> (maxstart-_slice.start)
-                lmask = maxvalue << _slice.stop
+        self._unpack_bitfeilds()
+        return value
 
-                mask = lmask & rmask
-                v[:] = (self._defs[bref] & mask ) >> _slice.stop
+    def _unpack_bitfeilds(self):
+        for (k, v, _slice, bref) in self._bfeild_list:
+            size = len(bytes(v))
+            maxstart = (size*8)-1
+            maxvalue =  2**(size*8)-1
 
-        #self._unpack_bitfeilds()
+            rmask = maxvalue >> (maxstart-_slice.start)
+            lmask = maxvalue << _slice.stop
+
+            mask = lmask & rmask
+            v[:] = (bref & mask ) >> _slice.stop
 
     def __len__(self):
         return len(self.value[0])

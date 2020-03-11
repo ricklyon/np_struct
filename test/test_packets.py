@@ -24,7 +24,7 @@ class pktheader(cstruct):
 
 
 class command(cstruct):
-    state1 = uint16(), slice(3,0)
+    state1 = uint8(), slice(3,0)
     state2 = uint8(), slice(5,4)
     state3 = uint8(), slice(7,6)
 
@@ -71,12 +71,12 @@ class ack(BasePacket):
 # register the values in pkt_types to the DPKPacket class 
 Packet.register_packets(BasePacket, pkt_types)
 
-bf = command()
-#c.data3 = 18.2
-bf.state2 = 1
-bf.state1 = 0
-
-# c.state3 = 1
-# c.state2 = 0x3
-print(bf)
-print(bf._defs_list)
+# a = expkt()
+# a.bf.state1 = 1
+# a.bf.state2 = 0xFFFF
+# a.data3= 8
+# print(a)
+# b = bytes(a)
+# c = expkt()
+# c.unpack(b)
+# print(c)

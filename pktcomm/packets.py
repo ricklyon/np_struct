@@ -60,15 +60,16 @@ class Packet(cstruct):
 
     def build_header(self, **params):
         """ Optional. Populates packet header with values from params. Called just before pkt_write().
-            all kwargs passed into the __init__ function of the Packet interface, 
-            as well as any passed into pkt_write() or pkt_sendrecv() can be found in params
+            all kwargs passed into the __init__ function of the Packet interface can be found in params,
+            as well as any passed into pkt_write() or pkt_sendrecv()
         """
         pass
 
     def check_header(self, **params):
         """ Optional. Performs checks on incoming packet, (e.g. destination address matches interface address).
             Called during pkt_read().
-            all kwargs passed into the __init__ function of the Packet interface can be found in params
+            all kwargs passed into the __init__ function of the Packet interface can be found in params,
+            as well as any passed into pkt_read() or pkt_sendrecv()
         """
         pass
 

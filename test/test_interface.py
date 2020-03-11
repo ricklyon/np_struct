@@ -14,6 +14,9 @@ def send_ex():
     pkt.data1 += 4
     pkt.data2 = -5
     pkt.data3 = pkt.data2 * 3
+    pkt.bf.state1 = 1
+    pkt.bf.state2 = 0xFFFF
+    print(pkt)
     return intf.pkt_sendrecv(pkt, dest=0x0F)
 
 def send_ack():
