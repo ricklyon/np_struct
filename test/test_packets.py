@@ -24,8 +24,9 @@ class pktheader(cstruct):
 
 
 class command(cstruct):
-    state1 = uint16(), slice(7,0)
-    state2 = uint16(), slice(10,8)
+    state1 = uint16(), 8
+    state2 = uint16(), 2
+    state3 = uint16(), 1
 
 
 class BasePacket(Packet):

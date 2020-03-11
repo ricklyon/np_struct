@@ -23,7 +23,7 @@ class StructMeta(type):
 
             if isinstance(value, tuple) and len(value) == 2:
 
-                if isinstance(value[1], slice):
+                if isinstance(value[1], int):
                     value, _slice = value
                 else:
                     value, _enum = value
@@ -72,18 +72,21 @@ class cstruct(metaclass=StructMeta):
         dtype = []
 
         ## walk through feild definitions and build dtype and bit feilds
-        base = None
+        base, bnum = None, 0
         for k,v in self._defs.items():
 
             if self._slice[k] != None:
                 if np.any(base == None) or base.dtype != v.dtype:
-                    base = v.copy()
+                    base, bnum = v.copy(), 0
                     self._defs_list.append((k, base, None))
                     dtype.append((k, v.dtype, v.shape))
 
-                self._bfeild_list.append((k, v, self._slice[k], base))
+                slice_ = slice((bnum + self._slice[k])-1, bnum)
+                bnum += self._slice[k]
+                self._bfeild_list.append((k, v, slice_, base))
+                self._slice[k] = slice_
             else:
-                base = None
+                base, bnum = None, 0
                 self._defs_list.append((k, v, self._enum[k]))
                 dtype.append((k, v.dtype, v.shape))
 

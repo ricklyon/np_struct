@@ -13,6 +13,7 @@ def send_ex():
     pkt = tpkts.expkt()
     pkt.bf.state1 = 0x1FFF
     pkt.bf.state2 = 0xFFFF
+    pkt.bf.state3 = 0x3
     print(pkt)
     return intf.pkt_sendrecv(pkt, dest=0x0F)
 
@@ -22,4 +23,7 @@ def send_ack():
     r = intf.pkt_sendrecv(pkt, dest=0x03)
     return r
 
-print(send_ex())
+#print(send_ex())
+
+a = tpkts.expkt(arg1=2)
+print(a)

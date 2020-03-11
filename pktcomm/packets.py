@@ -73,6 +73,9 @@ class Packet(cstruct):
         """
         pass
 
+    def get_variable(self):
+        return self
+
     #########################
     #########################
 
@@ -165,6 +168,7 @@ class PacketComm(object):
 
         if rm_len > 0:
             rdbytes += self.read(rm_len)
-            pkt.unpack(rdbytes)
+
+        pkt.unpack(rdbytes)
 
         return pkt
