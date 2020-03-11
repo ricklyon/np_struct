@@ -69,13 +69,3 @@ class ack(BasePacket):
 
 # register the values in pkt_types to the DPKPacket class 
 Packet.register_packets(BasePacket, pkt_types)
-
-# a = expkt()
-# a.bf.state1 = 1
-# a.bf.state2 = 0xFFFF
-# a.data3= 8
-# print(a)
-# b = bytes(a)
-# c = expkt()
-# c.unpack(b)
-# print(c)

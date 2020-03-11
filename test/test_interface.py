@@ -1,10 +1,10 @@
 
-from loopback import LoopBack
+
 import numpy as np
 from numpy import uint8, uint16
 import test_packets as tpkts
 import time
-from pktcomm import PacketError
+from pktcomm import PacketError, LoopBack
 
 
 intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01)
