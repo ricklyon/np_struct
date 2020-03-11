@@ -71,6 +71,7 @@ class cstruct(metaclass=StructMeta):
         self._bfeild_list = []
         dtype = []
 
+        ## walk through feild definitions and build dtype and bit feilds
         base = None
         for k,v in self._defs.items():
 
@@ -103,6 +104,7 @@ class cstruct(metaclass=StructMeta):
         return np.array([tuple(value)], dtype=self.dtype)
 
     def _build_bitfeilds(self):
+        ## set the value of each bitfeild reference to match the member variable values
         for (k, v, _slice, bref) in self._bfeild_list:
             size = len(bytes(v))
             maxstart = (size*8)-1
@@ -122,6 +124,7 @@ class cstruct(metaclass=StructMeta):
             bref[:] = bref_val
 
     def _get_feild_value(self, key, item):
+        ## returns the feild value for csctruct, enum or numpy type
         if isinstance(item, cstruct):
             return item.value
         elif self._enum[key] != None:
@@ -141,6 +144,7 @@ class cstruct(metaclass=StructMeta):
         return value
 
     def _unpack_bitfeilds(self):
+
         for (k, v, _slice, bref) in self._bfeild_list:
             size = len(bytes(v))
             maxstart = (size*8)-1
@@ -155,8 +159,13 @@ class cstruct(metaclass=StructMeta):
     def __len__(self):
         return len(self.value[0])
 
-    def _parse_enum(self, key, value):
-        if self._enum[key] == None:
+    def _parse_feild(self, key, value):
+        if self._slice[key] != None:
+            bits = self._slice[key].start - self._slice[key].stop +1
+            size = (bits // 8) + 1
+            maxvalue =  2**(size*8)-1
+            return value & (maxvalue >> ((size*8)-bits))
+        elif self._enum[key] == None:
             return value
         elif isinstance(value, self._enum[key]):
             return value.value
@@ -179,7 +188,7 @@ class cstruct(metaclass=StructMeta):
 
     def __setattr__(self, name, value):
         if name != '_defs' and (name in self._defs.keys()):
-            self._defs[name][:] = self._parse_enum(name, value)
+            self._defs[name][:] = self._parse_feild(name, value)
 
         else:
             super().__setattr__(name, value)
@@ -207,7 +216,9 @@ class cstruct(metaclass=StructMeta):
             if isinstance(v, cstruct):
                 str1 = v.__str__(tabs+ ' '*(self._printwidth))
             else:
-                if self._enum[k] != None:
+                if self._slice[k] != None:
+                    str3 = r'({}:{})'.format(self._slice[k].start, self._slice[k].stop) + str(v)
+                elif self._enum[k] != None:
                     str3 = str([self._enum[k](vv) for vv in v])
                 else:
                     str3 = str(v)

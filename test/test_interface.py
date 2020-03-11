@@ -11,10 +11,7 @@ intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01)
 
 def send_ex():
     pkt = tpkts.expkt()
-    pkt.data1 += 4
-    pkt.data2 = -5
-    pkt.data3 = pkt.data2 * 3
-    pkt.bf.state1 = 1
+    pkt.bf.state1 = 0x1FFF
     pkt.bf.state2 = 0xFFFF
     print(pkt)
     return intf.pkt_sendrecv(pkt, dest=0x0F)
