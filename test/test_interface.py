@@ -23,7 +23,4 @@ def send_ack():
     r = intf.pkt_sendrecv(pkt, dest=0x03)
     return r
 
-#print(send_ex())
-
-a = tpkts.expkt(arg1=2)
-print(a)
+print(send_ex())

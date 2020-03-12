@@ -32,14 +32,8 @@ class command(cstruct):
 class BasePacket(Packet):
     hdr = pktheader()
 
-    def get_size(self):
-        return self.hdr.size
-
     def set_size(self, value):
         self.hdr.size = value
-
-    def get_type(self):
-        return self.hdr.ptype
 
     def set_type(self, value):
         self.hdr.ptype = value
@@ -48,13 +42,10 @@ class BasePacket(Packet):
         self.hdr.dest =  params.get('dest', 0xFF)
         self.hdr.src = params.get('addr')
 
-    def check_header(self, **params):
-        ## raise error if dest addr does not match addr of interface
-        if not (self.hdr.dest & params['addr']):
-            raise RuntimeError(
-            'Packet destination \'{}\' does not match address {}. Recieved header:\n{}'
-            .format(self.hdr.dest, params['addr'], str(self.hdr))
-            )
+    def parse_header(self, **params):
+        pkt_size = self.hdr.size
+        ptype = self.hdr.ptype
+        return dict(psize=pkt_size, ptype=ptype, pvalid=valid)
 
 class expkt(BasePacket):
     hdr = pktheader()

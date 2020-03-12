@@ -33,8 +33,15 @@ class StructMeta(type):
                 if key in ['value', 'dtype', 'shape'] or key[0] == '_':
                     raise RuntimeError('Protected field name: ({})'.format(key))
                 
-                if not isinstance(value, cstruct) and len(value.shape) == 0:
-                    value = np.array([value], dtype=value.dtype)
+                if not isinstance(value, cstruct):
+
+                    if len(value.shape) == 0:
+                        value = np.array([value], dtype=value.dtype)
+
+                    shape = kwargs.pop(key, None)
+                    if shape != None:
+                        value = np.broadcast_to(value, shape)
+
 
                 fields[key], enums[key], slices[key]  = value, _enum, _slice
 
@@ -68,10 +75,10 @@ class cstruct(metaclass=StructMeta):
         self._defs = dict(**vars(self))
         self._defs_keys = [k for k,v in self._defs.items()]
         self._defs_list = []
-        self._bfeild_list = []
+        self._bfield_list = []
         dtype = []
 
-        ## walk through feild definitions and build dtype and bit feilds
+        ## walk through field definitions and build dtype and bit fields
         base, bnum = None, 0
         for k,v in self._defs.items():
 
@@ -83,7 +90,7 @@ class cstruct(metaclass=StructMeta):
 
                 slice_ = slice((bnum + self._slice[k])-1, bnum)
                 bnum += self._slice[k]
-                self._bfeild_list.append((k, v, slice_, base))
+                self._bfield_list.append((k, v, slice_, base))
                 self._slice[k] = slice_
             else:
                 base, bnum = None, 0
@@ -99,16 +106,16 @@ class cstruct(metaclass=StructMeta):
 
     def _build_value(self):
 
-        self._build_bitfeilds()
+        self._build_bitfields()
         value = []
         for (k, v, _enum) in self._defs_list:
-            value.append(self._get_feild_value(k,v))
+            value.append(self._get_field_value(k,v))
 
         return np.array([tuple(value)], dtype=self.dtype)
 
-    def _build_bitfeilds(self):
-        ## set the value of each bitfeild reference to match the member variable values
-        for (k, v, _slice, bref) in self._bfeild_list:
+    def _build_bitfields(self):
+        ## set the value of each bitfield reference to match the member variable values
+        for (k, v, _slice, bref) in self._bfield_list:
             size = len(bytes(v))
             maxstart = (size*8)-1
             maxvalue =  2**(size*8)-1
@@ -126,8 +133,8 @@ class cstruct(metaclass=StructMeta):
             bref_val = bref_val | setval
             bref[:] = bref_val
 
-    def _get_feild_value(self, key, item):
-        ## returns the feild value for csctruct, enum or numpy type
+    def _get_field_value(self, key, item):
+        ## returns the field value for csctruct, enum or numpy type
         if isinstance(item, cstruct):
             return item.value
         elif self._enum[key] != None:
@@ -143,12 +150,12 @@ class cstruct(metaclass=StructMeta):
             else:
                 v[:] = value[i]
 
-        self._unpack_bitfeilds()
+        self._unpack_bitfields()
         return value
 
-    def _unpack_bitfeilds(self):
+    def _unpack_bitfields(self):
 
-        for (k, v, _slice, bref) in self._bfeild_list:
+        for (k, v, _slice, bref) in self._bfield_list:
             size = len(bytes(v))
             maxstart = (size*8)-1
             maxvalue =  2**(size*8)-1
@@ -162,7 +169,7 @@ class cstruct(metaclass=StructMeta):
     def __len__(self):
         return len(self.value[0])
 
-    def _parse_feild(self, key, value):
+    def _parse_field(self, key, value):
         if self._slice[key] != None:
             bits = self._slice[key].start - self._slice[key].stop +1
             size = (bits // 8) + 1
@@ -191,7 +198,7 @@ class cstruct(metaclass=StructMeta):
 
     def __setattr__(self, name, value):
         if name != '_defs' and (name in self._defs.keys()):
-            self._defs[name][:] = self._parse_feild(name, value)
+            self._defs[name][:] = self._parse_field(name, value)
 
         else:
             super().__setattr__(name, value)

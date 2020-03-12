@@ -1,4 +1,5 @@
 from . structures import cstruct
+import numpy as np
 
 class Packet(cstruct):
     PKT_CLASSES = dict(dict())
@@ -71,10 +72,7 @@ class Packet(cstruct):
             all kwargs passed into the __init__ function of the Packet interface can be found in params,
             as well as any passed into pkt_read() or pkt_sendrecv()
         """
-        pass
-
-    def get_variable(self):
-        return self
+        raise NotImplementedError()
 
     #########################
     #########################
@@ -131,44 +129,46 @@ class PacketComm(object):
     def pkt_read(self, **kwargs):
         
         ## read length of base packet from interface, and unpack btyes into base_packet
-        ## if bytes does not equal the base packet length, an error will be thrown by the underlying struct unpack method,
+        ## if rdbytes does not equal the base packet length, an error will be thrown by the underlying struct unpack method,
         ## this ensures that the exsisting contents of base_packet from the previous read are wiped completely
         rdbytes = self.read(self._pkt_base_len)
         self._pkt_base.unpack(rdbytes)
 
-        ## read the full packet length from the header
-        pkt_len = self._pkt_base.get_size()
-
-        ## allow user to catch errors in header
-        self._pkt_base.check_header(**{ **kwargs, **self._pkt_header_params})
+        ## parse the header
+        hdr_dct = self._pkt_base.parse_header(**{ **kwargs, **self._pkt_header_params})
         
+        ptype = hdr_dct.get('ptype')[0]
+        psize = hdr_dct.get('psize')
+        pshapes = hdr_dct.get('pshapes', {})
+        pvalid = hdr_dct.get('pvalid', True)
+
         ## there is an error if the size from the header is less than the length of the base packet length
-        if (pkt_len < self._pkt_base_len):
+        if (psize < self._pkt_base_len):
             self.flush(True)
-            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}'.format(pkt_len, self._pkt_base_len, rdbytes))
-         
-        ## get packet type from header
-        pkt_type = self._pkt_base.get_type()[0]
-
-        ## throw an error and flush the interface if packet type is not recognized
-        if pkt_type not in self._pkt_classes.keys():
-            self.flush(True)
-            raise PacketTypeError('Packet type \'{}\' not registered under {}. Recieved: {}'.format(pkt_type, self.pkt_class.__name__, rdbytes))
+            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}'.format(psize, self._pkt_base_len, rdbytes))
         
-        ## create packet of recognized packet type
-        pkt = self._pkt_classes[pkt_type]()
-
-        ## enforce that size field in header matches actual size
-        if pkt_len != pkt.get_byte_size():
-            self.flush(True)
-            raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(pkt_len, pkt.get_byte_size(), pkt_type, rdbytes))
-         
-        ## read remaining packet bytes from interface and return unpacked packet
-        rm_len = int(pkt_len - len(rdbytes))
-
+        ## read remaining packet, even if pvalid is False which will clear the packet from the rx buffer
+        rm_len = int(psize - self._pkt_base_len)
         if rm_len > 0:
             rdbytes += self.read(rm_len)
 
-        pkt.unpack(rdbytes)
+        if pvalid:
+            return None
+        
+        else:
+            ## throw an error and flush the interface if packet type is not recognized
+            if ptype not in self._pkt_classes.keys():
+                self.flush(True)
+                raise PacketTypeError('Packet type \'{}\' not registered under {}. Recieved: {}'.format(ptype, self.pkt_class.__name__, rdbytes))
+            
+            ## create packet of recognized packet type
+            pkt = self._pkt_classes[ptype](**pshapes)
 
-        return pkt
+            # enforce that size field in header matches actual size
+            if psize != pkt.get_byte_size():
+                self.flush(True)
+                raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(pkt_len, pkt.get_byte_size(), pkt_type, rdbytes))
+
+            pkt.unpack(rdbytes)
+
+            return pkt
