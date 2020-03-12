@@ -39,23 +39,23 @@ class Packet(cstruct):
     ## Default header functions. Overide these in the packet sub-class.
     #######
 
-    def get_size(self):
-        """ Reads and returns packet size field
-        """
-        raise NotImplementedError()
-
     def set_size(self, value):
         """ Writes value to the packet size field
         """
         raise NotImplementedError()
 
-    def get_type(self):
-        """ Reads and returns unique packet type field
+    def set_type(self, value):
+        """ Writes unique value to packet type field
         """
         raise NotImplementedError()
 
-    def set_type(self, value):
-        """ Writes unique value to packet type field
+    def parse_header(self, **params):
+        """ Reads the packet header and returns a dictionary with the following key/value pairs:
+                psize (np.ndarray): packet size field
+                ptype (np.ndarray): packet type field
+                pvalid (boolean, default=True): flag to unpack packet (True), or to ignore (False)
+                pshapes (dictionary, default={}): values being the array shapes of member items in the packet, 
+                        and keys being the name of that member.
         """
         raise NotImplementedError()
 
@@ -66,13 +66,21 @@ class Packet(cstruct):
         """
         pass
 
-    def check_header(self, **params):
-        """ Optional. Performs checks on incoming packet, (e.g. destination address matches interface address).
-            Called during pkt_read().
-            all kwargs passed into the __init__ function of the Packet interface can be found in params,
-            as well as any passed into pkt_read() or pkt_sendrecv()
-        """
-        raise NotImplementedError()
+
+    def build_header(self, **params):
+        self.hdr.dest =  params.get('dest', 0xFF)
+        self.hdr.src = params.get('addr')
+
+    def parse_header(self, **params):
+        pkt_size = self.hdr.size
+        ptype = self.hdr.ptype
+        valid =  bool(self.hdr.dest & params['addr'])
+        if not valid:
+            raise RuntimeError(
+            'Packet destination \'{}\' does not match address {}. Recieved header:\n{}'
+            .format(self.hdr.dest, params['addr'], str(self.hdr))
+            )
+        return dict(psize=pkt_size, ptype=ptype, pvalid=valid)
 
     #########################
     #########################
@@ -129,7 +137,7 @@ class PacketComm(object):
     def pkt_read(self, **kwargs):
         
         ## read length of base packet from interface, and unpack btyes into base_packet
-        ## if rdbytes does not equal the base packet length, an error will be thrown by the underlying struct unpack method,
+        ## if rdbytes does not equal the base packet length, an error will be thrown by the underlying numpy unpack method,
         ## this ensures that the exsisting contents of base_packet from the previous read are wiped completely
         rdbytes = self.read(self._pkt_base_len)
         self._pkt_base.unpack(rdbytes)
@@ -152,7 +160,7 @@ class PacketComm(object):
         if rm_len > 0:
             rdbytes += self.read(rm_len)
 
-        if pvalid:
+        if not pvalid:
             return None
         
         else:
@@ -164,7 +172,7 @@ class PacketComm(object):
             ## create packet of recognized packet type
             pkt = self._pkt_classes[ptype](**pshapes)
 
-            # enforce that size field in header matches actual size
+            # catch size errors before numpy unpack does
             if psize != pkt.get_byte_size():
                 self.flush(True)
                 raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(pkt_len, pkt.get_byte_size(), pkt_type, rdbytes))

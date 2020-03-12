@@ -5,7 +5,7 @@ import time
 class SerialComm(PacketComm):
 	OPEN_PORTS = {}
 
-	def __init__(self, port, baudrate = 115200, timeout = 1, pkt_class = None, addr = 0x1, eol=None):
+	def __init__(self, port, baudrate=115200, timeout=1, pkt_class=None, addr=0x1, eol=None):
 		port = port.upper()
 		ser = serial.Serial()
 		ser.port = port

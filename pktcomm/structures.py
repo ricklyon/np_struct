@@ -30,7 +30,7 @@ class StructMeta(type):
 
             if isinstance(value, (np.ndarray, supported_dtypes, cstruct)):
 
-                if key in ['value', 'dtype', 'shape'] or key[0] == '_':
+                if key in ['value', 'dtype', 'shape', 'unpack'] or key[0] == '_':
                     raise RuntimeError('Protected field name: ({})'.format(key))
                 
                 if not isinstance(value, cstruct):

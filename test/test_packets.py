@@ -45,7 +45,7 @@ class BasePacket(Packet):
     def parse_header(self, **params):
         pkt_size = self.hdr.size
         ptype = self.hdr.ptype
-        return dict(psize=pkt_size, ptype=ptype, pvalid=valid)
+        return dict(psize=pkt_size, ptype=ptype)
 
 class expkt(BasePacket):
     hdr = pktheader()

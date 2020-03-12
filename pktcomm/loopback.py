@@ -1,11 +1,11 @@
-from pktcomm import PacketComm
+from . packets import PacketComm
 import serial
 import time
 
 class LoopBack(PacketComm):
     """ For Debugging Packet interface"""
 
-    def __init__(self, timeout = 1, pkt_class=None, addr=0x1, eol=None):
+    def __init__(self, timeout = 1, pkt_class=None, addr=0x1, eol=None, **kwargs):
 
         self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
         self.timeout = timeout
