@@ -1,6 +1,6 @@
 
 from numpy import uint8, uint16, float64, int16
-from pktcomm import cstruct, Packet
+from packets34 import cstruct, Packet
 from enum import Enum
 
 class ack_codes(Enum):

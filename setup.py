@@ -9,7 +9,7 @@ setup(
     author_email='rlyon@yahoo.com',
     version='0.1.1',
     url="https://github.com/rlyon14/comm",
-    packages=['pktcomm',],
+    packages=['packets34',],
     install_requires=(
         'numpy',
         'pyserial >= 3.0'

@@ -61,26 +61,10 @@ class Packet(cstruct):
 
     def build_header(self, **params):
         """ Optional. Populates packet header with values from params. Called just before pkt_write().
-            all kwargs passed into the __init__ function of the Packet interface can be found in params,
+            All kwargs passed into the __init__ function of the Packet interface can be found in params,
             as well as any passed into pkt_write() or pkt_sendrecv()
         """
         pass
-
-
-    def build_header(self, **params):
-        self.hdr.dest =  params.get('dest', 0xFF)
-        self.hdr.src = params.get('addr')
-
-    def parse_header(self, **params):
-        pkt_size = self.hdr.size
-        ptype = self.hdr.ptype
-        valid =  bool(self.hdr.dest & params['addr'])
-        if not valid:
-            raise RuntimeError(
-            'Packet destination \'{}\' does not match address {}. Recieved header:\n{}'
-            .format(self.hdr.dest, params['addr'], str(self.hdr))
-            )
-        return dict(psize=pkt_size, ptype=ptype, pvalid=valid)
 
     #########################
     #########################
