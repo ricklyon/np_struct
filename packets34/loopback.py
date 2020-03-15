@@ -14,7 +14,7 @@ class LoopBack(PacketComm):
         self.tx_buffer = b''
 
         if (pkt_class != None):
-            super(LoopBack, self).__init__(pkt_class, addr=addr)
+            super(LoopBack, self).__init__(pkt_class, addr=addr, **kwargs)
         
     def flush(self, reset_tx=True):
         self.rx_buffer = b''

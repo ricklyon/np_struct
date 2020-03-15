@@ -1,5 +1,5 @@
 
-from numpy import uint8, uint16, float64, int16
+from numpy import uint8, uint16, float64, uint32
 from packets34 import cstruct, Packet
 from enum import Enum
 
@@ -17,14 +17,14 @@ class pkt_types(Enum):
 
 class pktheader(cstruct):
     size = uint16()
-    dest = uint8()
-    src = uint8()
+    dest = uint8(7)
+    src = uint8([1])
     ptype = uint8(), pkt_types
-
 
 class BasePacket(Packet):
     hdr = pktheader()
     len_payload = uint8()
+    payload = uint16()
 
     def set_size(self, value):
         self.hdr.size = value

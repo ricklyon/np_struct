@@ -45,17 +45,24 @@ class Packet(cstruct):
         raise NotImplementedError()
 
     def set_type(self, value):
-        """ Writes unique value to packet type field
+        """ Writes value to packet type field
         """
         raise NotImplementedError()
 
     def parse_header(self, **params):
         """ Reads the packet header and returns a dictionary with the following key/value pairs:
-                psize (np.ndarray): packet size field
-                ptype (np.ndarray): packet type field
-                pvalid (boolean, default=True): flag to unpack packet (True), or to ignore (False)
-                pshapes (dictionary, default={}): values being the array shapes of member items in the packet, 
-                        and keys being the name of that member.
+                psize: np.ndarray
+                    packet size field
+                ptype: np.ndarray
+                    packet type field
+                pvalid: boolean, default = True
+                    flag to unpack packet (True) in pkt_read(), or to ignore (False) and return None in pkt_read()
+                pshapes: dictionary, default = {}: 
+                    keys must be a name of a member item.
+                    values are the dynamic shapes of member items in the packet, typically read from a
+                    payload size field or computed from the packet size.
+                porder: char, default = '<'
+                    packet byte order. '<' for little endian, '>' for big endian
         """
         raise NotImplementedError()
 
@@ -85,11 +92,12 @@ class PacketComm(object):
         self._pkt_types = Packet.PKT_TYPES[pkt_class.__name__]
 
         self._pkt_class = pkt_class
+        self._byte_order = kwargs.pop('byte_order', '<')
         self._pkt_header_params = kwargs
 
         ## create a base packet from class, this packet won't be registered under a type
         ## base_packet will be re-used for every read
-        self._pkt_base = self._pkt_class(register=False)
+        self._pkt_base = self._pkt_class(register=False, byte_order=self._byte_order)
         self._pkt_base_len = self._pkt_base.get_byte_size()
 
     def flush(self, reset_tx=True): 
@@ -110,6 +118,8 @@ class PacketComm(object):
     def pkt_write(self, packet, **kwargs):
         ## concatenate params from init (e.g. interface address) and kwargs (e.g. destination address)
         ## so everything is available in the build_header function
+        if packet._byte_order != self._byte_order:
+            packet._set_order(self._byte_order)
         packet.build_header(**{ **kwargs, **self._pkt_header_params})
         self.write(bytes(packet))
     
@@ -130,14 +140,14 @@ class PacketComm(object):
         hdr_dct = self._pkt_base.parse_header(**{ **kwargs, **self._pkt_header_params})
         
         ptype = hdr_dct.get('ptype')[0]
-        psize = hdr_dct.get('psize')
+        psize = hdr_dct.get('psize')[0]
         pshapes = hdr_dct.get('pshapes', {})
         pvalid = hdr_dct.get('pvalid', True)
 
         ## there is an error if the size from the header is less than the length of the base packet length
         if (psize < self._pkt_base_len):
             self.flush(True)
-            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}'.format(psize, self._pkt_base_len, rdbytes))
+            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}\n{}'.format(psize, self._pkt_base_len, rdbytes, self._pkt_base))
         
         ## read remaining packet, even if pvalid is False which will clear the packet from the rx buffer
         rm_len = int(psize - self._pkt_base_len)
@@ -154,7 +164,7 @@ class PacketComm(object):
                 raise PacketTypeError('Packet type \'{}\' not registered under {}. Recieved: {}'.format(ptype, self.pkt_class.__name__, rdbytes))
             
             ## create packet of recognized packet type
-            pkt = self._pkt_classes[ptype](**pshapes)
+            pkt = self._pkt_classes[ptype](byte_order=self._byte_order, **pshapes)
 
             # catch size errors before numpy unpack does
             if psize != pkt.get_byte_size():
@@ -162,5 +172,4 @@ class PacketComm(object):
                 raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(pkt_len, pkt.get_byte_size(), pkt_type, rdbytes))
 
             pkt.unpack(rdbytes)
-
             return pkt

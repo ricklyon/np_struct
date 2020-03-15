@@ -3,6 +3,7 @@ import numpy as np
 
 supported_dtypes = (np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.uint64, np.int64, np.float32, np.float64)
 
+protected_field_names = ['value', 'dtype', 'shape', 'unpack', 'byte_order', 'get_byte_size']
 
 class StructMeta(type):
 
@@ -11,8 +12,11 @@ class StructMeta(type):
         name = cls.__name__
         bases = cls.__bases__
 
-        ## pull out all class variables of cFields type from class dictionary
-        ## these will be added to the instance dictionary
+        inst_dct = {}
+        inst_defs = {}
+
+        ## pull out all class variables of supported types from class dictionary
+        ## and add to the instance dictionary
         fields = {}
         enums = {}
         slices = {}
@@ -21,6 +25,7 @@ class StructMeta(type):
             _enum = None
             _slice = None
 
+            ## second item in field definition can be a bit field number or enum class
             if isinstance(value, tuple) and len(value) == 2:
 
                 if isinstance(value[1], int):
@@ -30,39 +35,49 @@ class StructMeta(type):
 
             if isinstance(value, (np.ndarray, supported_dtypes, cstruct)):
 
-                if key in ['value', 'dtype', 'shape', 'unpack'] or key[0] == '_':
+                if key in protected_field_names or key[0] == '_':
                     raise RuntimeError('Protected field name: ({})'.format(key))
                 
                 if not isinstance(value, cstruct):
 
+                    ## enusre every field item is a numpy array
                     if len(value.shape) == 0:
                         value = np.array([value], dtype=value.dtype)
 
+                    ## dynamically set shape if field name is found in kwargs
                     shape = kwargs.pop(key, None)
                     if shape != None:
-                        value = np.broadcast_to(value, shape)
+                        value = np.broadcast_to(value, shape).copy()
+                    
+                    else:
+                        value = value.copy()
 
+                else:
+                    value = value.__copy__()
 
                 fields[key], enums[key], slices[key]  = value, _enum, _slice
+                inst_dct[key] = value
+                inst_defs[key] = value
 
         for key, value in fields.items():
             dct.pop(key)
 
         ## add class variable printwidth to speed up printing out member variables
-        #prtw = max([len(k) for k,v in fields.items()]) + 3
-
         dct['_printwidth'] = max(len(k) for k in fields.keys()) + 3
         dct['_oldcls'] = cls
-        dct['_enum'] = enums
-        dct['_slice'] = slices
+        inst_dct['_enum'] = enums
+        inst_dct['_slice'] = slices
+        inst_dct['_defs'] = inst_defs
 
         ## call type's __new__ to create new class definition with updated class dictionary
-        ## call __new__ of class definition to create class instance
         cls = type.__new__(StructMeta, name, bases, dct)
-        self = cls.__new__(cls, bases, dct)
+        ## call __new__ of class definition to create class instance
+        self = cls.__new__(cls, bases, {})
+        self.__dict__.update(inst_dct)
 
-        for key, value in fields.items():
-            self.__dict__[key] = value.__copy__()
+        ## copy field items, maybe not needed.
+        # for key, value in fields.items():
+        #     self.__dict__[key] = value.__copy__()
 
         ## call __init__ and return initizialed object
         self.__init__(*args, **kwargs)
@@ -70,10 +85,9 @@ class StructMeta(type):
 
 class cstruct(metaclass=StructMeta):
     
-    def __init__(self, order='<', **kwargs):
+    def __init__(self, byte_order='<'):
     
-        self._defs = dict(**vars(self))
-        self._defs_keys = [k for k,v in self._defs.items()]
+        #self._defs = dict(**vars(self))
         self._defs_list = []
         self._bfield_list = []
         dtype = []
@@ -85,7 +99,7 @@ class cstruct(metaclass=StructMeta):
             if self._slice[k] != None:
                 if np.any(base == None) or base.dtype != v.dtype:
                     base, bnum = v.copy(), 0
-                    self._defs_list.append((k, base, None))
+                    self._defs_list.append([k, base, None])
                     dtype.append((k, v.dtype, v.shape))
 
                 slice_ = slice((bnum + self._slice[k])-1, bnum)
@@ -94,15 +108,23 @@ class cstruct(metaclass=StructMeta):
                 self._slice[k] = slice_
             else:
                 base, bnum = None, 0
-                self._defs_list.append((k, v, self._enum[k]))
+                self._defs_list.append([k, v, self._enum[k]])
                 dtype.append((k, v.dtype, v.shape))
 
-        self._order = order
         self.shape = ()
+        self._bsize = None
         self.dtype = np.dtype(dtype)
-        self._value = self._build_value()
-        self._bsize = len(bytes(self))
+        self._set_order(byte_order)
+        #self._bsize = len(bytes(self))
         
+
+    def _set_order(self, byte_order):
+        self._byte_order = byte_order
+        self.dtype = self.dtype.newbyteorder(byte_order)
+
+        for (k, v, _enum) in self._defs_list:
+            if isinstance(v, cstruct):
+                v._set_order(byte_order)
 
     def _build_value(self):
 
@@ -170,6 +192,7 @@ class cstruct(metaclass=StructMeta):
         return len(self.value[0])
 
     def _parse_field(self, key, value):
+
         if self._slice[key] != None:
             bits = self._slice[key].start - self._slice[key].stop +1
             size = (bits // 8) + 1
@@ -188,7 +211,7 @@ class cstruct(metaclass=StructMeta):
 
     @value.setter
     def value(self, value):
-        self._value = self._unpack_value(value)
+        self._unpack_value(value)
 
     def __bytes__(self):
         return bytes(self.value)
@@ -211,13 +234,11 @@ class cstruct(metaclass=StructMeta):
         return inst
 
     def get_byte_size(self):
+        self._bsize = len(bytes(self)) if self._bsize == None else self._bsize
         return self._bsize
-
-    def byte_str(self):
-        return 'x' + bytes(self).hex().upper()
     
     def __str__(self, tabs=''):
-        bstr = self.byte_str()
+        bstr = 'x' + bytes(self).hex().upper()
         bstr = '' if len(bstr) > 17 else ' (' + bstr + ')'
         name = r'{} {}{}'.format(self.__class__.__bases__[0].__name__, self.__class__.__name__, bstr)
         str0 = str(name) + ':\n'
@@ -233,15 +254,12 @@ class cstruct(metaclass=StructMeta):
                 else:
                     str3 = str(v)
                 
-                bstr1 = '0x' + str(bytes(v).hex().upper())
+                dstr = self._byte_order + v.dtype.str[1:]
+                v1 = v.astype(dstr)
+
+                bstr1 = '0x' + str(bytes(v1).hex().upper())
                 bstr1 = '' if len(bstr1) > 17 else ' (' + bstr1 + ')'
-                str1 = str(v.dtype) + str3 + bstr1
+                str1 = str(v.dtype.name) + str3 + bstr1
 
             str0 += tabs + str(k)+':'+' '*(self._printwidth-len(str(k))-1)+str1+'\n'
         return str0[:-1]
-
-    def set_order(self, order):
-        for k,v in self._defs.items():
-            v.set_order(order)
-
-        super().set_order(order)
