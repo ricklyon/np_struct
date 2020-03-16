@@ -22,7 +22,6 @@ class pktheader(cstruct):
     src = uint8()
     ptype = uint8(), pkt_types
 
-
 class command(cstruct):
     state1 = uint16(), 8
     state2 = uint16(), 2

@@ -16,5 +16,7 @@ def send_ex():
     print(pkt)
     return intf.pkt_sendrecv(pkt, dest=0x0f)
 
-
+# a = tpkts.expkt()
+# print(a.__dict__)
+# print(a)
 print(send_ex())

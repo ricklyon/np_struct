@@ -7,22 +7,22 @@ protected_field_names = ['value', 'dtype', 'shape', 'unpack', 'byte_order', 'get
 
 class StructMeta(type):
 
-    def __call__(cls, *args, **kwargs):
-        dct = dict(cls.__dict__)
-        name = cls.__name__
-        bases = cls.__bases__
+    def __new__(metacls, cls, bases, classdict):
+        # enum_class = super().__new__(metacls, cls, bases, classdict)
+        
+        if cls == 'Packet' or cls == 'cstruct':
+            return super().__new__(metacls, cls, bases, classdict)
 
-        inst_dct = {}
-        inst_defs = {}
+        cls_defs = {}
 
         ## pull out all class variables of supported types from class dictionary
         ## and add to the instance dictionary
         fields = {}
         enums = {}
         slices = {}
-        for i, (key, value) in enumerate(dct.items()):
-            
-            _enum = None
+    
+        for i, (key, value) in enumerate(classdict.items()):
+            _enum  = None
             _slice = None
 
             ## second item in field definition can be a bit field number or enum class
@@ -40,84 +40,75 @@ class StructMeta(type):
                 
                 if not isinstance(value, cstruct):
 
-                    ## enusre every field item is a numpy array
+                    ## ensure every field item is a numpy array
                     if len(value.shape) == 0:
                         value = np.array([value], dtype=value.dtype)
 
-                    ## dynamically set shape if field name is found in kwargs
-                    shape = kwargs.pop(key, None)
-                    if shape != None:
-                        value = np.broadcast_to(value, shape).copy()
-                    
-                    else:
-                        value = value.copy()
-
-                else:
-                    value = value.__copy__()
-
                 fields[key], enums[key], slices[key]  = value, _enum, _slice
-                inst_dct[key] = value
-                inst_defs[key] = value
+                cls_defs[key] = value
 
-        for key, value in fields.items():
-            dct.pop(key)
+        classdict['_printwidth'] = max(len(k) for k in fields.keys()) + 3
+        classdict['_oldcls'] = metacls
+        classdict['_enum'] = enums
+        classdict['_cls_slice'] = slices
+        classdict['_cls_defs'] = cls_defs
 
-        ## add class variable printwidth to speed up printing out member variables
-        dct['_printwidth'] = max(len(k) for k in fields.keys()) + 3
-        dct['_oldcls'] = cls
-        inst_dct['_enum'] = enums
-        inst_dct['_slice'] = slices
-        inst_dct['_defs'] = inst_defs
+        for key, value in cls_defs.items():
+            classdict.pop(key)
 
-        ## call type's __new__ to create new class definition with updated class dictionary
-        cls = type.__new__(StructMeta, name, bases, dct)
-        ## call __new__ of class definition to create class instance
-        self = cls.__new__(cls, bases, {})
-        self.__dict__.update(inst_dct)
+        ncls = super().__new__(metacls, cls, bases, classdict)
 
-        ## copy field items, maybe not needed.
-        # for key, value in fields.items():
-        #     self.__dict__[key] = value.__copy__()
-
-        ## call __init__ and return initizialed object
-        self.__init__(*args, **kwargs)
-        return self
+        return ncls
 
 class cstruct(metaclass=StructMeta):
-    
-    def __init__(self, byte_order='<'):
+
+    def __init__(self, byte_order='<', **kwargs):
     
         #self._defs = dict(**vars(self))
+        self._setter = False
+        self._defs = {}
         self._defs_list = []
         self._bfield_list = []
+        self._slice = {}
         dtype = []
-
+        
         ## walk through field definitions and build dtype and bit fields
         base, bnum = None, 0
-        for k,v in self._defs.items():
+        for k,v in self._cls_defs.items():
 
-            if self._slice[k] != None:
+            if self._cls_slice[k] != None:
                 if np.any(base == None) or base.dtype != v.dtype:
-                    base, bnum = v.copy(), 0
+                    value = v.copy()
+                    base, bnum = value, 0
                     self._defs_list.append([k, base, None])
                     dtype.append((k, v.dtype, v.shape))
 
-                slice_ = slice((bnum + self._slice[k])-1, bnum)
-                bnum += self._slice[k]
-                self._bfield_list.append((k, v, slice_, base))
+                slice_ = slice((bnum + self._cls_slice[k])-1, bnum)
+                bnum += self._cls_slice[k]
+                value = v.copy()
+                self._bfield_list.append((k, value, slice_, base))
                 self._slice[k] = slice_
             else:
+                self._slice[k] = None
+                shape = kwargs.pop(k, None)
+                if shape != None:
+                    value = np.broadcast_to(v, shape).copy()
+                else:
+                    value = v.__copy__()
+
                 base, bnum = None, 0
-                self._defs_list.append([k, v, self._enum[k]])
-                dtype.append((k, v.dtype, v.shape))
+                self._defs_list.append([k, value, self._enum[k]])
+                dtype.append((k, value.dtype, value.shape))
+
+            self._defs[k] = value
+            self.__dict__[k] = value
 
         self.shape = ()
         self._bsize = None
         self.dtype = np.dtype(dtype)
         self._set_order(byte_order)
-        #self._bsize = len(bytes(self))
+        self._setter = True
         
-
     def _set_order(self, byte_order):
         self._byte_order = byte_order
         self.dtype = self.dtype.newbyteorder(byte_order)
@@ -220,16 +211,15 @@ class cstruct(metaclass=StructMeta):
         self.value = np.frombuffer(byte_data, dtype=self.dtype)[0]
 
     def __setattr__(self, name, value):
-        if name != '_defs' and (name in self._defs.keys()):
+        if name != '_setter' and self._setter and (name in self._defs.keys()):
             self._defs[name][:] = self._parse_field(name, value)
 
         else:
             super().__setattr__(name, value)
 
     def __copy__(self):
-
         dct = copy.deepcopy(self.__dict__)
-        inst = self._oldcls()
+        inst = self.__class__()
         inst.__dict__.update(dct)
         return inst
 

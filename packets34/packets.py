@@ -6,6 +6,7 @@ class Packet(cstruct):
     PKT_TYPES = dict(dict())
 
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         name = self.__class__.__name__
         key = self.__class__.__bases__[0].__name__
 
@@ -16,7 +17,7 @@ class Packet(cstruct):
         elif reg:
             self.set_type(self.PKT_TYPES[key][name])
 
-        super().__init__(*args, **kwargs)
+        # super().__init__(*args, **kwargs)
         self.set_size(self.get_byte_size())
 
     @classmethod
