@@ -11,14 +11,12 @@ class Packet(cstruct):
         key = self.__class__.__bases__[0].__name__
 
         reg = kwargs.pop('register', True)
+        self.set_size(self.get_byte_size())
 
         if reg and not (self.PKT_TYPES[key][name] in self.PKT_TYPES[key]):
             raise RuntimeError('Packet ({}) not registered under {}.'.format(name, key))
         elif reg:
             self.set_type(self.PKT_TYPES[key][name])
-
-        # super().__init__(*args, **kwargs)
-        self.set_size(self.get_byte_size())
 
     @classmethod
     def register_packets(cls, pkt_class, pkt_types):
@@ -62,8 +60,6 @@ class Packet(cstruct):
                     keys must be a name of a member item.
                     values are the dynamic shapes of member items in the packet, typically read from a
                     payload size field or computed from the packet size.
-                porder: char, default = '<'
-                    packet byte order. '<' for little endian, '>' for big endian
         """
         raise NotImplementedError()
 

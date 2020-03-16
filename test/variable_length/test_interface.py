@@ -7,7 +7,7 @@ import time
 from packets34 import PacketError, LoopBack
 
 
-intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01, byte_order='>')
+intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01, byte_order='<')
 
 def send_ex():
     pkt = tpkts.expkt(payload=(2,))
