@@ -10,7 +10,7 @@ from packets34 import PacketError, LoopBack
 intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01, byte_order='<')
 
 def send_ex():
-    pkt = tpkts.expkt(payload=(2,))
+    pkt = tpkts.expkt(payload=(10,))
     pkt.payload = 2
     pkt.len_payload = len(pkt.payload)
     print(pkt)

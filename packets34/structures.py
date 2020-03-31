@@ -8,7 +8,6 @@ protected_field_names = ['value', 'dtype', 'shape', 'unpack', 'byte_order', 'get
 class StructMeta(type):
 
     def __new__(metacls, cls, bases, classdict):
-        # enum_class = super().__new__(metacls, cls, bases, classdict)
         
         if cls == 'Packet' or cls == 'cstruct':
             return super().__new__(metacls, cls, bases, classdict)
@@ -119,15 +118,37 @@ class cstruct(metaclass=StructMeta):
 
     def _build_value(self):
 
-        self._build_bitfields()
+        self._pack_bitfields()
         value = []
         for (k, v, _enum) in self._defs_list:
             value.append(self._get_field_value(k,v))
 
         return np.array([tuple(value)], dtype=self.dtype)
 
-    def _build_bitfields(self):
+    def _pack_bitfields(self):
         ## set the value of each bitfield reference to match the member variable values
+        for (k, v, _slice, bref) in self._bfield_list:
+            setval, mask = self._mask_bitfield(v, _slice)
+
+            bref_val = bref.copy()
+
+            bref_val = bref_val & (~mask)
+            bref_val = bref_val | setval
+            bref[:] = bref_val
+
+    def _mask_bitfield(self, value, _slice):
+            size = len(bytes(value))
+            maxstart = (size*8)-1
+            maxvalue =  2**(size*8)-1
+
+            rmask = maxvalue >> (maxstart-_slice.start)
+            lmask = maxvalue << _slice.stop
+
+            mask = lmask & rmask
+            return (value << _slice.stop) & mask, mask
+
+    def _unpack_bitfields(self):
+
         for (k, v, _slice, bref) in self._bfield_list:
             size = len(bytes(v))
             maxstart = (size*8)-1
@@ -137,14 +158,7 @@ class cstruct(metaclass=StructMeta):
             lmask = maxvalue << _slice.stop
 
             mask = lmask & rmask
-
-            bref_val = bref.copy()
-
-            setval = (v << _slice.stop) & mask
-
-            bref_val = bref_val & (~mask)
-            bref_val = bref_val | setval
-            bref[:] = bref_val
+            v[:] = (bref & mask ) >> _slice.stop
 
     def _get_field_value(self, key, item):
         ## returns the field value for csctruct, enum or numpy type
@@ -165,19 +179,6 @@ class cstruct(metaclass=StructMeta):
 
         self._unpack_bitfields()
         return value
-
-    def _unpack_bitfields(self):
-
-        for (k, v, _slice, bref) in self._bfield_list:
-            size = len(bytes(v))
-            maxstart = (size*8)-1
-            maxvalue =  2**(size*8)-1
-
-            rmask = maxvalue >> (maxstart-_slice.start)
-            lmask = maxvalue << _slice.stop
-
-            mask = lmask & rmask
-            v[:] = (bref & mask ) >> _slice.stop
 
     def __len__(self):
         return len(self.value[0])
@@ -229,27 +230,30 @@ class cstruct(metaclass=StructMeta):
     
     def __str__(self, tabs=''):
         bstr = 'x' + bytes(self).hex().upper()
-        bstr = '' if len(bstr) > 17 else ' (' + bstr + ')'
+        bstr = '' if len(bstr) > 24 else ' (' + bstr + ')'
         name = r'{} {}{}'.format(self.__class__.__bases__[0].__name__, self.__class__.__name__, bstr)
-        str0 = str(name) + ':\n'
-        tabs = tabs+'    '
+        
+        build = str(name) + ':\n'
+        tabs = tabs + '    '
         for k,v in self._defs.items():
             if isinstance(v, cstruct):
-                str1 = v.__str__(tabs+ ' '*(self._printwidth))
+                field_str = v.__str__(tabs+ ' '*(self._printwidth))
             else:
-                if self._slice[k] != None:
-                    str3 = r'({}:{})'.format(self._slice[k].start, self._slice[k].stop) + str(v)
-                elif self._enum[k] != None:
-                    str3 = str([self._enum[k](vv) for vv in v])
-                else:
-                    str3 = str(v)
-                
+                ## recast data type in order to print correct byte order
                 dstr = self._byte_order + v.dtype.str[1:]
                 v1 = v.astype(dstr)
 
-                bstr1 = '0x' + str(bytes(v1).hex().upper())
-                bstr1 = '' if len(bstr1) > 17 else ' (' + bstr1 + ')'
-                str1 = str(v.dtype.name) + str3 + bstr1
+                if self._slice[k] != None:
+                    value_str = r'({}:{})'.format(self._slice[k].start, self._slice[k].stop) + str(v)
+                    v1, mask = self._mask_bitfield(v1, self._slice[k])
+                elif self._enum[k] != None:
+                    value_str = str([self._enum[k](vv) for vv in v])
+                else:
+                    value_str = str(v)
 
-            str0 += tabs + str(k)+':'+' '*(self._printwidth-len(str(k))-1)+str1+'\n'
-        return str0[:-1]
+                b0 = bytes(v1).hex().upper()
+                byte_str = ' (0x{})'.format(b0) if len(b0) <= 24 else ''
+                field_str = str(v.dtype.name) + value_str + byte_str
+
+            build += tabs + str(k)+':'+' '*(self._printwidth-len(str(k))-1)+field_str+'\n'
+        return build[:-1]
