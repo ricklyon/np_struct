@@ -166,7 +166,7 @@ class PacketComm(object):
             # catch size errors before numpy unpack does
             if psize != pkt.get_byte_size():
                 self.flush(True)
-                raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(pkt_len, pkt.get_byte_size(), pkt_type, rdbytes))
+                raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(psize, pkt.get_byte_size(), ptype, rdbytes))
 
             pkt.unpack(rdbytes)
             return pkt
