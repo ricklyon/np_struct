@@ -123,6 +123,8 @@ class cstruct(metaclass=StructMeta):
         for (k, v, _enum) in self._defs_list:
             value.append(self._get_field_value(k,v))
 
+        print(value)
+        print(self.dtype)
         return np.array([tuple(value)], dtype=self.dtype)
 
     def _pack_bitfields(self):

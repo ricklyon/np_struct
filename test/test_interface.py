@@ -11,6 +11,7 @@ intf = LoopBack(pkt_class=tpkts.BasePacket, addr=0x01)
 
 def send_ex():
     pkt = tpkts.expkt()
+    print(pkt.dtype)
     pkt.bf.state1 = 0xFFF
     pkt.bf.state2 = 0x2
     pkt.bf.state3 = 0x3
