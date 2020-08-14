@@ -1,6 +1,6 @@
 
 from numpy import uint8, uint16, float64, int16
-from packets34 import cstruct, Packet
+from pktcomm import cstruct, Packet
 from enum import Enum
 
 class ack_codes(Enum):
@@ -38,13 +38,13 @@ class BasePacket(Packet):
         self.hdr.ptype = value
 
     def build_header(self, **params):
-        self.hdr.dest =  params.get('dest', 0xFF)
-        self.hdr.src = params.get('addr')
+        pass
 
     def parse_header(self, **params):
-        pkt_size = self.hdr.size
-        ptype = self.hdr.ptype
-        return dict(psize=pkt_size, ptype=ptype)
+        return dict(
+            size = self.hdr.size,
+            type =  self.hdr.ptype,
+        )
 
 class expkt(BasePacket):
     hdr = pktheader()

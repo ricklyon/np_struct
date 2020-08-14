@@ -1,9 +1,8 @@
 
 
-from packets34 import PacketError, LoopBack
 import unittest
 from numpy import uint8, uint16, float64, int16, uint32
-from packets34 import cstruct, Packet
+from pktcomm import cstruct, Packet, PacketError, LoopBack
 from enum import Enum
 
 class pkt_types(Enum):

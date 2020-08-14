@@ -3,7 +3,7 @@
 from numpy import uint8, uint16, float32, int16
 import numpy as np
 import unittest
-from packets34 import cstruct, Packet, LoopBack
+from pktcomm import cstruct, Packet, LoopBack
 from enum import Enum
 
 class pkt_types(Enum):

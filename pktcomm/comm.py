@@ -1,6 +1,6 @@
 
 import time
-from packets34 import Packet, PacketError, PacketTypeError, PacketSizeError
+from pktcomm import Packet, PacketError, PacketTypeError, PacketSizeError
 
 class PacketComm(object):
     
