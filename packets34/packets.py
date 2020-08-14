@@ -3,6 +3,7 @@ import numpy as np
 
 class Packet(cstruct):
     PKT_CLASSES = dict(dict())
+    PKT_INST = dict()
     PKT_TYPES = dict(dict())
 
     def __init__(self, *args, **kwargs):
@@ -20,8 +21,18 @@ class Packet(cstruct):
 
     @classmethod
     def register_packets(cls, pkt_class, pkt_types):
+        """ Creates a mapping of packet types to their associated classes.
+            Parameters
+            ----------
+            pkt_class:
+                class of base packet that all types inherit from
+            
+            pkt_types:
+                Enum of sub-packet names to their associated unique identifier.
+        """
         key = pkt_class.__name__
         cls.PKT_CLASSES[key] = {}
+        cls.PKT_INST[key] = pkt_class(register=False)
         cls.PKT_TYPES[key] = pkt_types
         for pkt in pkt_class.__subclasses__():
             if (pkt_types[pkt.__name__] not in pkt_types): 
@@ -33,6 +44,51 @@ class Packet(cstruct):
                 raise RuntimeError('Duplicate type fields for \'{}\' and \'{}\''.format(cls.PKT_CLASSES[key][ptype_value].__name__, pkt.__name__))
                 
             cls.PKT_CLASSES[key][ptype_value] = pkt
+            
+    @classmethod
+    def split_header(cls, bytes_, **kwargs):
+        """ Wrapper function for parse_header so we're compatible with pynterface
+        """
+        pkt_base = cls.PKT_INST[cls.__name__]
+        
+        psize = pkt_base.get_byte_size()
+        if len(bytes_) >= psize:
+            pkt_base.unpack(bytes_[:psize])
+
+            ## parse the header
+            hdr_dct = pkt_base.parse_header(**kwargs)
+            return {k:v[0] for k,v in hdr_dct.items()}
+        else:
+            return {}
+
+    @classmethod
+    def parse(cls, bytes_):
+        """ Unpack bytes_ into Packet object. 
+        """
+
+        pkt_base = cls.PKT_INST[cls.__name__]
+        pkt_classes = cls.PKT_CLASSES[cls.__name__]
+
+        base_size = pkt_base.get_byte_size()
+        pkt_base.unpack(bytes_[:base_size])
+
+        hdr_dct = pkt_base.parse_header()
+
+        psize = hdr_dct['size'][0]
+        ptype = hdr_dct['type'][0]
+        pshapes = hdr_dct.get('shapes', {})
+
+        if ptype not in pkt_classes.keys():
+            raise PacketTypeError('Packet type \'{}\' not registered under {}. Recieved: {}'.format(ptype, cls.__name__, bytes_))
+        
+        ## create packet of recognized packet type
+        pkt = pkt_classes[ptype](**pshapes)
+
+        pkt.unpack(bytes_)
+        return pkt
+
+    def __getitem__(self, key):
+        return self._defs[key]
 
     #######
     ## Default header functions. Overide these in the packet sub-class.
@@ -50,13 +106,13 @@ class Packet(cstruct):
 
     def parse_header(self, **params):
         """ Reads the packet header and returns a dictionary with the following key/value pairs:
-                psize: np.ndarray
+                size: np.ndarray
                     packet size field
-                ptype: np.ndarray
+                type: np.ndarray
                     packet type field
-                pvalid: boolean, default = True
+                valid: boolean, default = True
                     flag to unpack packet (True) in pkt_read(), or to ignore (False) and return None in pkt_read()
-                pshapes: dictionary, default = {}: 
+                shapes: dictionary, default = {}: 
                     keys must be a name of a member item.
                     values are the dynamic shapes of member items in the packet, typically read from a
                     payload size field or computed from the packet size.
@@ -82,91 +138,3 @@ class PacketTypeError(PacketError):
 class PacketSizeError(PacketError):
     pass
 
-class PacketComm(object):
-    
-    def __init__(self, pkt_class, **kwargs):
-        self._pkt_classes = Packet.PKT_CLASSES[pkt_class.__name__]
-        self._pkt_types = Packet.PKT_TYPES[pkt_class.__name__]
-
-        self._pkt_class = pkt_class
-        self._byte_order = kwargs.pop('byte_order', '<')
-        self._pkt_header_params = kwargs
-
-        ## create a base packet from class, this packet won't be registered under a type
-        ## base_packet will be re-used for every read
-        self._pkt_base = self._pkt_class(register=False, byte_order=self._byte_order)
-        self._pkt_base_len = self._pkt_base.get_byte_size()
-
-    def flush(self, reset_tx=True): 
-        """ Clear rx buffer of interface, clear tx buffer if reset_tx is True.
-        """ 
-        raise NotImplementedError()
-
-    def write(self, bytes_):
-        """ write bytes_ to interface
-        """
-        raise NotImplementedError()
-
-    def read(self, nbytes=None):
-        """ Reads nbytes (int) from interface.
-        """
-        raise NotImplementedError()
-
-    def pkt_write(self, packet, **kwargs):
-        ## concatenate params from init (e.g. interface address) and kwargs (e.g. destination address)
-        ## so everything is available in the build_header function
-        if packet._byte_order != self._byte_order:
-            packet._set_order(self._byte_order)
-        packet.build_header(**{ **kwargs, **self._pkt_header_params})
-        self.write(bytes(packet))
-    
-    def pkt_sendrecv(self, packet, **kwargs):
-        self.flush(False)
-        self.pkt_write(packet, **kwargs)
-        return self.pkt_read(**kwargs)
-
-    def pkt_read(self, **kwargs):
-        
-        ## read length of base packet from interface, and unpack btyes into base_packet
-        ## if rdbytes does not equal the base packet length, an error will be thrown by the underlying numpy unpack method,
-        ## this ensures that the exsisting contents of base_packet from the previous read are wiped completely
-        rdbytes = self.read(self._pkt_base_len)
-        self._pkt_base.unpack(rdbytes)
-
-        ## parse the header
-        hdr_dct = self._pkt_base.parse_header(**{ **kwargs, **self._pkt_header_params})
-        
-        ptype = hdr_dct.get('ptype')[0]
-        psize = hdr_dct.get('psize')[0]
-        pshapes = hdr_dct.get('pshapes', {})
-        pvalid = hdr_dct.get('pvalid', True)
-
-        ## there is an error if the size from the header is less than the length of the base packet length
-        if (psize < self._pkt_base_len):
-            self.flush(True)
-            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}\n{}'.format(psize, self._pkt_base_len, rdbytes, self._pkt_base))
-        
-        ## read remaining packet, even if pvalid is False which will clear the packet from the rx buffer
-        rm_len = int(psize - self._pkt_base_len)
-        if rm_len > 0:
-            rdbytes += self.read(rm_len)
-
-        if not pvalid:
-            return None
-        
-        else:
-            ## throw an error and flush the interface if packet type is not recognized
-            if ptype not in self._pkt_classes.keys():
-                self.flush(True)
-                raise PacketTypeError('Packet type \'{}\' not registered under {}. Recieved: {}'.format(ptype, self.pkt_class.__name__, rdbytes))
-            
-            ## create packet of recognized packet type
-            pkt = self._pkt_classes[ptype](byte_order=self._byte_order, **pshapes)
-
-            # catch size errors before numpy unpack does
-            if psize != pkt.get_byte_size():
-                self.flush(True)
-                raise PacketSizeError('Packet size field ({}) does not match expected size ({}) for type ({}). Recieved: {}'.format(psize, pkt.get_byte_size(), ptype, rdbytes))
-
-            pkt.unpack(rdbytes)
-            return pkt
