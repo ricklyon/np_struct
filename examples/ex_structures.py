@@ -4,6 +4,15 @@ import numpy as np
 from structures import Struct, Packet, ldarray, lddim
 from enum import Enum
 
+
+dim = lddim(a=[1,2], b=['data1', 'data2', 'data3'])
+
+data = ldarray(dim=dim)
+
+
+ld = ldarray([[10, 11, 12], [13, 14, 15]], dim=dim, dtype=np.float64)
+
+
 class example(Struct):
     a = np.array(["Item", 'Item'], dtype='S4')
     b = np.uint32(0xFFA)
@@ -12,12 +21,6 @@ class example(Struct):
 
 ex = example()
 print(ex)
-
-dim = lddim(freq_ghz=[1,2,3,4], atten=[1,2,3,4.4])
-
-
-data = ldarray(dim=dim)
-
 data[0] = 5
 
 data[{'freq_ghz':2}]
