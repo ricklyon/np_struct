@@ -1,7 +1,7 @@
 import copy
 import numpy as np
 
-supported_dtypes = (np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.uint64, np.int64, np.float32, np.float64)
+supported_dtypes = (np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.uint64, np.int64, np.float32, np.float64, np.string_)
 
 protected_field_names = ['value', 'dtype', 'shape', 'unpack', 'byte_order', 'get_byte_size']
 
@@ -9,14 +9,14 @@ class StructMeta(type):
 
     def __new__(metacls, cls, bases, classdict):
         
-        ## ignore the Packet and cstruct classes, we only want the metaclass to apply to subclasses of these
-        if cls == 'Packet' or cls == 'cstruct':
+        ## ignore the Packet and Struct classes, we only want the metaclass to apply to subclasses of these
+        if cls == 'Packet' or cls == 'Struct':
             return super().__new__(metacls, cls, bases, classdict)
 
         cls_defs = {}   ## all valid numpy types found in the class declaration go here
         enums = {}      ## built-in enum classes found next to numpy types
         slices = {}     ## slices used for bit fields
-        structarray = {}## flag for each field indicating whether or not it's a cstruct
+        structarray = {}## flag for each field indicating whether or not it's a Struct
         dtype = []      ## dtype of each numpy type
         bf_bases = {}   ## if a bit field is found, this points to the numpy object used in the structured array
 
@@ -40,7 +40,7 @@ class StructMeta(type):
                 base, bnum = None, 0
 
             ## ignore any class definitions that aren't supported numpy types
-            if not isinstance(value, (np.ndarray, supported_dtypes, cstruct)):
+            if not isinstance(value, (np.ndarray, supported_dtypes, Struct)):
                 base, bnum = None, 0
                 continue
             
@@ -50,17 +50,17 @@ class StructMeta(type):
             
             _dtype = (key, value.dtype, value.shape)
             
-            ## cstructs can't have enums or be part of bitfields
-            if not isinstance(value, cstruct):
+            ## Structs can't have enums or be part of bitfields
+            if not isinstance(value, Struct):
 
                 ## make base numpy types into single element arrays of that type
                 if len(value.shape) == 0:
                     value = np.array([value], dtype=value.dtype)
                     _dtype = (key, value.dtype, value.shape)
 
-                ## flag any arrays whose elements are cstructs, these are handled differently than normal arrays. 
+                ## flag any arrays whose elements are Structs, these are handled differently than normal arrays. 
                 ## it's convenient and fast to just have a flag we can query.
-                if isinstance(value[0], cstruct):
+                if isinstance(value[0], Struct):
                     _sarray = True
                     _dtype = (key, value[0].value.dtype, value.shape)
                     base, bnum = None, 0
@@ -81,7 +81,7 @@ class StructMeta(type):
             if _dtype != None:
                 dtype.append(_dtype)
 
-            ## bit field bases are referenced by a key until we create a cstruct object
+            ## bit field bases are referenced by a key until we create a Struct object
             bf_bases[key] = base_key if base != None else None
             enums[key], slices[key]  = _enum, _slice
             cls_defs[key] = value
@@ -103,7 +103,7 @@ class StructMeta(type):
 
         return ncls
 
-class cstruct(metaclass=StructMeta):
+class Struct(metaclass=StructMeta):
 
     def __init__(self, byte_order='<', **kwargs):
     
@@ -166,7 +166,7 @@ class cstruct(metaclass=StructMeta):
         self._setter = False
 
         for (k, v, _enum) in self._defs_list:
-            if isinstance(v, cstruct):
+            if isinstance(v, Struct):
                 v._set_order(byte_order)
 
     def __contains__(self, name):
@@ -218,7 +218,7 @@ class cstruct(metaclass=StructMeta):
 
     def _get_field_value(self, key, item):
         ## returns the field value for csctruct, enum or numpy type
-        if isinstance(item, cstruct):
+        if isinstance(item, Struct):
             return item.value
         elif self._enum[key] != None:
             return [self._enum[key](v).value for v in item]
@@ -231,7 +231,7 @@ class cstruct(metaclass=StructMeta):
     def _unpack_value(self, value):
 
         for i, (k, v, _enum) in enumerate(self._defs_list):
-            if isinstance(v, cstruct):
+            if isinstance(v, Struct):
                 v.value = value[i]
             elif self._structarray[k]:
                 for j, item in enumerate(v):
@@ -261,7 +261,7 @@ class cstruct(metaclass=StructMeta):
 
     @property
     def value(self):
-        """ structured array of the cstruct object. Calling this property rebuilds the structured array 
+        """ structured array of the Struct object. Calling this property rebuilds the structured array 
             so any changes made to the class attributes are reflected in the structured array
         """
         return self._build_value()
@@ -283,7 +283,7 @@ class cstruct(metaclass=StructMeta):
             super().__setattr__(name, value)
 
         elif name in self._defs.keys():
-            if isinstance(value, cstruct):
+            if isinstance(value, Struct):
                 self._defs[name].value = value.value[0]
             elif self._structarray[name]:
                 for j, item in enumerate(self._defs[name]):
@@ -319,9 +319,9 @@ class cstruct(metaclass=StructMeta):
         for k,v in self._defs.items():
             key_tab = ' '*(self._printwidth-len(str(k))-1)
 
-            if isinstance(v, cstruct):
+            if isinstance(v, Struct):
                 field_str = key_tab + v.__str__(tabs+ ' '*(self._printwidth))
-            elif isinstance(v[0], cstruct):
+            elif isinstance(v[0], Struct):
                 field_str = key_tab+'[ \n'
                 for vv in v:
                     field_str += vv.__str__(tabs+ ' '*(self._printwidth), newline=True) +'\n'

@@ -1,7 +1,7 @@
-from . structures import cstruct
+from . structures import Struct
 import numpy as np
 
-class Packet(cstruct):
+class Packet(Struct):
     PKT_CLASSES = dict(dict())
     PKT_INST = dict()
     PKT_TYPES = dict(dict())
@@ -47,7 +47,7 @@ class Packet(cstruct):
             
     @classmethod
     def split_header(cls, bytes_, **kwargs):
-        """ Wrapper function for parse_header so we're compatible with pynterface
+        """ Wrapper function for parse_header
         """
         pkt_base = cls.PKT_INST[cls.__name__]
         

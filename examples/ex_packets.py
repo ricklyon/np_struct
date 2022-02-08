@@ -1,7 +1,7 @@
 
 from numpy import uint8, uint16, float64, int16, uint32
 import numpy as np
-from pktcomm import cstruct, Packet
+from structures import Struct, Packet
 from enum import Enum
 
 class ack_codes(Enum):
@@ -16,7 +16,7 @@ class pkt_types(Enum):
     pkt_elementcal = 0x0C
     pkt_ack = 0xff
 
-class trmodule_literal(cstruct):
+class trmodule_literal(Struct):
     rx_atten = uint32(), 6
     rx_phase = uint32(), 6
     tx_atten = uint32(), 6
@@ -26,7 +26,7 @@ class trmodule_literal(cstruct):
     en_pa =    uint32(), 1
     rsvd =     uint32(), 5
 
-class pktheader(cstruct):
+class pktheader(Struct):
     size = uint16()
     dest = uint8()
     src = uint8()
