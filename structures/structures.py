@@ -1,15 +1,29 @@
 import copy
 import numpy as np
 
-supported_dtypes = (np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.uint64, np.int64, np.float32, np.float64, np.string_)
+supported_dtypes = (
+    np.uint8,
+    np.int8,
+    np.uint16,
+    np.int16,
+    np.uint32,
+    np.int32,
+    np.uint64,
+    np.int64,
+    np.float32,
+    np.float64,
+    np.string_
+)
 
-protected_field_names = ['value', 'dtype', 'shape', 'unpack', 'byte_order', 'get_byte_size']
+_PROTECTED_FIELD_NAMES = ["value", "dtype", "shape", "unpack", "byte_order", "get_byte_size"]
+
+_BYTE_ORDER_TOKENS = ("=", "<", ">", "|")
 
 class StructMeta(type):
 
     def __new__(metacls, cls, bases, classdict):
         
-        ## ignore the Packet and Struct classes, we only want the metaclass to apply to subclasses of these
+        ## ignore the Packet and Struct classes themselves, we only want the metaclass to apply to subclasses of these
         if cls == 'Packet' or cls == 'Struct':
             return super().__new__(metacls, cls, bases, classdict)
 
@@ -45,7 +59,7 @@ class StructMeta(type):
                 continue
             
             ## error if any private variables are used in class definition, or if there is a naming collision
-            if key in protected_field_names or key[0] == '_':
+            if key in _PROTECTED_FIELD_NAMES or key[0] == '_':
                 raise RuntimeError('Protected field name: ({})'.format(key))
             
             _dtype = (key, value.dtype, value.shape)
@@ -136,8 +150,9 @@ class Struct(metaclass=StructMeta):
 
             else:
                 shape = kwargs.pop(k, None)
-                if shape != None:
-                    value = np.broadcast_to(v, shape).copy()
+                if np.any(shape != None):
+                    value = np.broadcast_to(v, shape.shape).copy()
+                    value[:] = shape
                     #dtype.append((k, value.dtype, value.shape))
                 elif self._structarray[k]:
                     value = copy.deepcopy(v)

@@ -3,6 +3,7 @@ import datetime as dt
 from collections import OrderedDict
 import time
 from copy import deepcopy as dcopy
+import sys
 
 def round_to_multiple(value, multiple=1):
     """ Rounds value to nearest multiple. Multiple can be greater or less than 1.
@@ -26,6 +27,7 @@ def round_to_multiple(value, multiple=1):
     else:
         return np.around(w/invmul, int(np.abs(mlog10)))
 
+
 def check_shapes(a, b):
     ## check that the shape length of a and b match
     if len(a) != len(b):
@@ -37,6 +39,7 @@ def check_shapes(a, b):
             return False
     
     return True
+
 
 
 class lddim(OrderedDict):
@@ -53,14 +56,15 @@ class lddim(OrderedDict):
 
             dim = lddim(a=[1.2, 2.4, 3.1], b=[4,5,6], idx_precision={'a':2})
 
-        Index precision can also be modified after the constructor is called:
+        Alternatively, the index precision can be set after the constructor is called:
 
-            dim.set_precision(b=2, a=1e-3)
+            dim.set_idx_precision(b=2, a=1e-3)
+
     """
     DEFAULT_PRECISION = 1e-6
 
     def __init__(self, **kwargs):
-        ## Pop idx_precison from kwargs. Floating point indices default to 6 decimal precision.
+        ## Pop idx_precision from kwargs. Floating point indices default to 6 decimal precision.
         self.idx_precision = kwargs.pop('idx_precision', {})
 
         ## Look up table for exact dimensional labels (like integers)
@@ -72,32 +76,16 @@ class lddim(OrderedDict):
         ## Call OrderedDict __init__ to create dictionary of values
         super().__init__(**kwargs)
 
-        ## Cast each item in the dictionary to a numpy array. If items are objects, numpy will use the object
-        ## dtype for the array. Single items (not arrays) will be cast as single item arrays.
-        for k,v in self.items():
-            ## Cast single items as numpy arrays with np.array([v])
-            self[k] = np.array(v) if isinstance(v, (list, np.ndarray, tuple)) else np.array([v])
-
-            ## Provide default values for index precision if the values are floats
-            f64 = np.dtype(np.float64)
-            f32 = np.dtype(np.float32)
-
-            if (k not in self.idx_precision) and (self[k].dtype in [f64, f32]):
-                self.idx_precision[k] = self.DEFAULT_PRECISION
-
-            ## If the labels are not floats, they are used as exact indices and we create a lookup table that
-            ## maps the label to it's index in the dimension
-            else:
-                self.idx_label_lut[k] = {vv:i for i,vv in enumerate(self[k])}
-
             
-    def set_precision(self, **kwargs):
+    def set_idx_precision(self, **kwargs):
         """ Sets precision for given dimensional indices. Accpets key value pairs where key is dimensional key
             and value is index precision. Precision value can be less or greater than 1, default precision is 1e-6.
 
+            Precision is the maximum distance a index can be from a dimension label that the indexing routing will allow.
+
             Example:
                 dim = lddim(a=[1.2, 2.4, 3.1], b=[4,5,6])
-                dim.set_precision(b=2, a=1e-3)
+                dim.set_idx_precision(b=2, a=1e-3)
         """
 
         ## Update precisions only if the key already exsists in idx_precision.
@@ -118,6 +106,7 @@ class lddim(OrderedDict):
 
                 dim = lddim(a=[1.2, 2.4, 3.1], b=[4,5,6])
                 dim.set_idx_handler(b=ex_handler)
+
         """
         for k,v in kwargs:
             if k in self.keys():
@@ -129,6 +118,33 @@ class lddim(OrderedDict):
         """
         return tuple([len(v) for k,v in self.items()])
 
+    def __setitem__(self, k, v):
+        ## ensures each value of the dictionary is a numpy array and
+        ## adds new values to the idx_precision dictionary if they are floats and the label look up table otherwise
+        
+        ## cast as numpy array
+        v = np.array(v) if isinstance(v, (list, np.ndarray, tuple)) else np.array([v])
+
+        ## call ordered dictionary __setitem__
+        super().__setitem__(k, v)
+
+        f64 = np.dtype(np.float64)
+        f32 = np.dtype(np.float32)
+
+        ## Provide default values for index precision if the values are floats
+        if (k not in self.idx_precision) and (self[k].dtype in [f64, f32]):
+            self.idx_precision[k] = self.DEFAULT_PRECISION
+        
+        ## add to lookup table otherwise
+        else:
+            self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v)}
+
+    
+    def get_axis_num(self, key):
+        """ Returns the axis (dimension) number that key has in the lddarray that uses this lddim for it's axis labels.
+        """
+        return list(self.keys()).index(key)
+
 
     def __str__(self):
         ## breaks out each key-value pair into it's own line for easier reading 
@@ -137,8 +153,11 @@ class lddim(OrderedDict):
             s += k + ': ' + str(v) + '\n'
         return s+ '}'
 
+
     def __repr__(self):
         return self.__str__()
+
+
 
 class ldarray(np.ndarray):
     """ Labeled numpy array. Subclass of np.ndarray where dimension labels can be used to index and slice
@@ -164,13 +183,15 @@ class ldarray(np.ndarray):
         Arrays can be indexed with no change to how normal numpy arrays work.
         Example:
         >>> ld[:, 2] 
-        ldarray([12, 15])
+            
+            ldarray([12, 15])
 
-        But can also be indexed with the dimension labels given by dim by indexing with a dictionary. The keys must match 
-        the keys of the dim dictionary, and the labels can be given as single values, or contained within slices.
+        But can also be indexed with the dimension labels by indexing with a dictionary. The keys must match 
+        the keys of the dim dictionary, and the labels can be given as single values, or as slices.
         Example:
         >>> ld[{'b':'data3'}] 
-        ldarray([[12 15]])
+
+            ldarray([[12 15]])
 
         Index dictionaries do not need to contain labels for every dimension, dimensions not included in the dictionary
         will not be indexed (equivlent to using ':' in the standard numpy index).
@@ -189,8 +210,8 @@ class ldarray(np.ndarray):
         Example:
         >>> ld[{'a':2}] = 7
 
-        ldarray([[10, 11, 12],
-                 [ 7,  7,  7]])
+            ldarray([[10, 11, 12],
+                    [ 7,  7,  7]])
 
     """
     def __new__(cls, input_=None, dim=None, dtype=None):
@@ -399,7 +420,7 @@ class ldarray(np.ndarray):
                 ## unpack temporary array
                 s_start, s_stop = s_temp
                 ## populate numpy index with slice of standard indices
-                np_index[np_i] = slice(s_start, s_stop, s_step)
+                np_index[np_i] = slice(s_start, s_stop+1, s_step)
 
             ## label index is exact (integer or string) so we use the lookup table
             else:
@@ -420,20 +441,6 @@ class ldarray(np.ndarray):
                 np_index[np_i] = int(np_index[np_i].start)
 
         return tuple(np_index)
-
-    def get_axis_num(self, key):
-        dim_keys = list(self.dim.keys())
-        return dim_keys.index(key)
-
-    # def save(self, file_):
-    #     np.savez(file_, data=self, dim=self.dim)
-
-    # @classmethod
-    # def load(self, file_):
-    #     loadf = np.load(file_.with_suffix(r'.npz'), allow_pickle=True)
-    #     data = loadf['data'][()]
-    #     dim = loadf['dim'][()]
-    #     return ldarray(data, dim)
 
     def run_loop(self, func, index_to=None, dtype='float64', progress_interval=0):
         ## get rid of element_shape, need to have self be the full dimensioned value and index appropriately in the run_loop
@@ -464,3 +471,14 @@ class ldarray(np.ndarray):
         
         if progress_interval:
             print('\nIterations: {}, Timer: {:0.4f}s'.format(self.iter, time.time()-stime))
+
+
+    # def save(self, file_):
+    #     np.savez(file_, data=self, dim=self.dim)
+
+    # @classmethod
+    # def load(self, file_):
+    #     loadf = np.load(file_.with_suffix(r'.npz'), allow_pickle=True)
+    #     data = loadf['data'][()]
+    #     dim = loadf['dim'][()]
+    #     return ldarray(data, dim)
