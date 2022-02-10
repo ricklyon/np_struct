@@ -41,7 +41,6 @@ def check_shapes(a, b):
     return True
 
 
-
 class lddim(OrderedDict):
     """ Labeled dimension indices for ldarray. Conditions values to work as indices, but otherwise, same as 
         an Ordered Dictionary. 
@@ -144,6 +143,62 @@ class lddim(OrderedDict):
         """ Returns the axis (dimension) number that key has in the lddarray that uses this lddim for it's axis labels.
         """
         return list(self.keys()).index(key)
+
+    def get_idx_string(self, idx, sep1='=', sep2=', ', fmt_func=None):
+        """ Given a standard index, generates a string in key=value format that shows the label for the index of each dimension.
+            Example:
+                dim = lddim(a=[1.2, 2.4, 3.1], b=[4,5,6])
+
+                >>> dim.get_idx_string((1,0))
+
+                    "a=2.4, b=4"
+            
+            Parameters:
+            ----------
+            idx(tuple): index to each dimension, can be a slice (i.e. slice(None,None) in which case the returned string
+                        will not include that dimension label.
+            
+            Optional Argument:
+            sep1 (string): string that seperates dimension key from the index label. Defaults to '='
+
+            sep2 (string): string that seperates dimensions. Defaults to ', '.
+
+            fmt_func (dict): dictionary of functions that each take an index label as it's only argument and returns a formatted
+                             string. If not provided, the label for that key will be converted to a string using str(). 
+
+
+        """
+        dim_keys = list(self.keys())
+
+        ## initial return string and formatting dictionary
+        ret = ''
+        fmt_func = {} if fmt_func is None else fmt_func
+
+        for i,v in enumerate(idx):
+            ## do not include axis that have a slice for the index
+            if isinstance(v, slice):
+                continue
+
+            ## get dimension label
+            key = dim_keys[i]
+
+            ## get formatting function for this axis if provided. Default to using the str() method.
+            fmt_func_k = fmt_func.pop(key, lambda x:str(x))
+
+            ## build string for this axis and append to return string
+            str_ = key + sep1 + fmt_func_k(v) + sep2
+            ret += str_
+
+        ## do not include the last seperator in the return value
+        return ret[:-len(sep2)]
+
+    def __add__(self, other):
+        ## supports concatenating lddim with the + operator
+
+        ## copy dictionary and append other to it.
+        a = dcopy(self)
+        a.update(other)
+        return a
 
 
     def __str__(self):
