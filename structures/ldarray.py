@@ -140,12 +140,13 @@ class lddim(OrderedDict):
 
     
     def get_axis_num(self, key):
-        """ Returns the axis (dimension) number that key has in the lddarray that uses this lddim for it's axis labels.
+        """ Returns the axis (dimension) number that 'key' has in the lddarray that uses this lddim.
         """
         return list(self.keys()).index(key)
 
+
     def get_idx_string(self, idx, sep1='=', sep2=', ', fmt_func=None):
-        """ Given a standard index, generates a string in key=value format that shows the label for the index of each dimension.
+        """ Given a standard index, generates a string of the index label at each dimension in key=value format.
             Example:
                 dim = lddim(a=[1.2, 2.4, 3.1], b=[4,5,6])
 
@@ -155,8 +156,8 @@ class lddim(OrderedDict):
             
             Parameters:
             ----------
-            idx(tuple): index to each dimension, can be a slice (i.e. slice(None,None) in which case the returned string
-                        will not include that dimension label.
+            idx(tuple): index to each dimension, can be a slice (i.e. slice(None,None) in which case the generated string
+                        will not include the dimension label.
             
             Optional Argument:
             sep1 (string): string that seperates dimension key from the index label. Defaults to '='
@@ -164,7 +165,7 @@ class lddim(OrderedDict):
             sep2 (string): string that seperates dimensions. Defaults to ', '.
 
             fmt_func (dict): dictionary of functions that each take an index label as it's only argument and returns a formatted
-                             string. If not provided, the label for that key will be converted to a string using str(). 
+                             string. If not provided, the label will be converted using str(). 
 
 
         """

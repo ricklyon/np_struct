@@ -1,6 +1,7 @@
 
 import time
 from structures import Packet, PacketError, PacketTypeError, PacketSizeError
+import serial
 
 class PacketTransfer(object):
     
@@ -147,7 +148,7 @@ class SerialInterface(PacketTransfer):
 		self.flush()
 
 		if (pkt_class != None):
-			super(SerialComm, self).__init__(pkt_class, addr=addr)
+			super(SerialInterface, self).__init__(pkt_class, addr=addr)
 		
 	def flush(self, reset_tx=True):
 		self.ser.read(self.ser.in_waiting)
@@ -226,7 +227,7 @@ class SocketInterface(PacketTransfer):
         self.rxBuffer = b''
 
         if (pkt_class != None):
-            super(SocketComm, self).__init__(pkt_class, addr=0x1)
+            super(SocketInterface, self).__init__(pkt_class, addr=0x1)
 
     def checkconnection(func):
         def wrapper(self, *args, **kwargs):
