@@ -60,10 +60,10 @@ class lddim(OrderedDict):
             dim.set_idx_precision(b=2, a=1e-3)
 
     """
-    DEFAULT_PRECISION = 1e-6
+    DEFAULT_PRECISION = 1e-3
 
     def __init__(self, **kwargs):
-        ## Pop idx_precision from kwargs. Floating point indices default to 6 decimal precision.
+        ## Pop idx_precision from kwargs. Floating point indices default to 3 decimal precision.
         self.idx_precision = kwargs.pop('idx_precision', {})
 
         ## Look up table for exact dimensional labels (like integers)
@@ -71,6 +71,9 @@ class lddim(OrderedDict):
 
         ## Dictionary of custom indexing handlers
         self.idx_handlers = {}
+
+        ## 
+        self.squeeze_integer_idx = True
 
         ## Call OrderedDict __init__ to create dictionary of values
         super().__init__(**kwargs)
@@ -206,7 +209,7 @@ class lddim(OrderedDict):
         ## breaks out each key-value pair into it's own line for easier reading 
         s = '{\n'
         for k,v in self.items():
-            s += k + ': ' + str(v) + '\n'
+            s += k + ': ' + v.__repr__() + '\n'
         return s+ '}'
 
 
@@ -384,11 +387,12 @@ class ldarray(np.ndarray):
         
         ## if the index key is not a dictionary, use the numpy __setitem__
         if not isinstance(key, dict):
-            super(ldarray, self).__setitem__(key, value)
+            super().__setitem__(key, value)
 
         ## if key is dictionary, convert to standard indices with _v2idx and set value
         else:
             idx = self._v2idx(key)
+            ## call __setitem__ again, but this time with a standard index
             self[idx] = value
         
 
@@ -492,11 +496,14 @@ class ldarray(np.ndarray):
                 ## populate numpy index with slice of standard indices
                 np_index[np_i] = slice(s_start, s_stop, s_step)
 
-            ## replace slices with integers if an integer index was given so that numpy will squeeze the dimension when indexed
-            if not is_idx_slice:
+            ## at this point we could replace single value slices with integers so those dimensions are indexed out by numpy, 
+            ## however, it's convienient to leave unitary axis in the labels because you can check exactly what was indexed when 
+            ## using approximate indexing. Default behavior is to squeeze to be consistent with numpy but can be overridden.
+            if not is_idx_slice and self.dim.squeeze_integer_idx:
                 np_index[np_i] = int(np_index[np_i].start)
 
         return tuple(np_index)
+
 
     def run_loop(self, func, index_to=None, dtype='float64', progress_interval=0):
         ## get rid of element_shape, need to have self be the full dimensioned value and index appropriately in the run_loop
