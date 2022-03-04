@@ -505,6 +505,53 @@ class ldarray(np.ndarray):
         return tuple(np_index)
 
 
+    def save(self, filepath):
+        """
+        Saves ldarray to disk in numpy structured array format (.npy).
+        """
+        # initialize value and dtype of structured array
+        dim_value = []
+        dim_dtype = []
+
+        # build dtype and value from dimension labels
+        # dtype for a structured array is a tuple in the format (name, dtype, shape)
+        for k,v in self.dim.items():
+            dim_value.append(v)
+            dim_dtype.append((k, v.dtype, v.shape))
+
+        # # create structured array from dimension labels
+        # dim_structure = np.array([tuple(dim_value)], dtype=dim_dtype)
+        # print(dim_structure)
+        # print(dim_value)
+
+        value = [self, tuple(dim_value)]
+        dtype = [('data', self.dtype, self.shape), ('dim', dim_dtype, (1,))]
+        
+        # create structured array
+        structure = np.array([tuple(value)], dtype=dtype)
+
+        # save to file
+        np.save(filepath, structure)
+
+    @classmethod
+    def load(cls, filepath):
+        """
+        Loads a ldarray from disk. (.npy)
+        """
+        # load structured array
+        structure = np.load(filepath)
+        
+        # pull the dimension labels from the array
+        dim_s = structure['dim'][0]
+        data = structure['data'][0]
+
+        # build lddim from dim structure
+        dim = lddim(**{k : dim_s[k][0] for k in dim_s.dtype.names})
+        
+        # return data array
+        return ldarray(data, dim=dim)
+            
+
     def run_loop(self, func, index_to=None, dtype='float64', progress_interval=0):
         ## get rid of element_shape, need to have self be the full dimensioned value and index appropriately in the run_loop
 
