@@ -2,6 +2,7 @@
 import time
 from structures import Packet, PacketError, PacketTypeError, PacketSizeError
 import serial
+import socket
 
 class PacketTransfer(object):
     
