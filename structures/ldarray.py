@@ -582,13 +582,3 @@ class ldarray(np.ndarray):
         if progress_interval:
             print('\nIterations: {}, Timer: {:0.4f}s'.format(self.iter, time.time()-stime))
 
-
-    # def save(self, file_):
-    #     np.savez(file_, data=self, dim=self.dim)
-
-    # @classmethod
-    # def load(self, file_):
-    #     loadf = np.load(file_.with_suffix(r'.npz'), allow_pickle=True)
-    #     data = loadf['data'][()]
-    #     dim = loadf['dim'][()]
-    #     return ldarray(data, dim)

@@ -261,6 +261,7 @@ class Struct(metaclass=StructMeta):
                     
                 else:
                     value_str = str(item)
+                    p_item = item.get_value()
 
                 v1 = p_item.astype(dstr)
                 b0 = bytes(v1).hex().upper()
