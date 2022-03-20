@@ -479,8 +479,9 @@ class ldarray(np.ndarray):
                 
                 ## unpack temporary array
                 s_start, s_stop = s_temp
+                s_stop = s_stop+1 if s_stop is not None else s_stop
                 ## populate numpy index with slice of standard indices
-                np_index[np_i] = slice(s_start, s_stop+1, s_step)
+                np_index[np_i] = slice(s_start, s_stop, s_step)
 
             ## label index is exact (integer or string) so we use the lookup table
             else:
