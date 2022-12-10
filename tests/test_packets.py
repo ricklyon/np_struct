@@ -1,6 +1,6 @@
 
 from numpy import uint8, uint16, float64, int16
-from pktcomm import cstruct, Packet
+from structures import Packet, Struct
 from enum import Enum
 
 class ack_codes(Enum):
@@ -16,13 +16,13 @@ class pkt_types(Enum):
     expkt = 0x2
     ack = 0xFF
 
-class pktheader(cstruct):
+class pktheader(Struct):
     size = uint16()
     dest = uint8()
     src = uint8()
     ptype = uint8(), pkt_types
 
-class command(cstruct):
+class command(Struct):
     state1 = uint16(), 8
     state2 = uint16(), 2
     state3 = uint16(), 1

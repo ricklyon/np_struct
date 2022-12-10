@@ -275,6 +275,10 @@ class ldarray(np.ndarray):
     """
     def __new__(cls, input_=None, dim=None, dtype=None):
         
+        # cast dim as lddim
+        if isinstance(dim, dict):
+            dim = lddim(**dim)
+            
         ## create 0 filled array if no data is given in the constructor
         if np.all(input_ == None):
             shape = tuple([len(v) for k,v in dim.items()])
@@ -299,6 +303,8 @@ class ldarray(np.ndarray):
         if obj is None: return
         self.dim = getattr(obj, 'dim', lddim())
 
+    def sel(self, **keys):
+        return self[keys]
 
     def __getitem__(self, key):
 
@@ -411,6 +417,16 @@ class ldarray(np.ndarray):
         ## call __getitem__ and return
         return self[tuple(idx)]
 
+    def __str__(self):
+        s = super().__repr__()
+        s+='\nDimensions: ' + str(self.shape)
+        for k, v in self.dim.items():
+            s+='\n'+k + ': '+ np.array2string(v, threshold=5)
+        
+        return s + '\n'
+
+    def __repr__(self):
+        return str(self)
 
     def _v2idx(self, dct_idx):
         ### Converts dictionary indices to standard numpy indices. Using dictionaries as indices avoids the need
