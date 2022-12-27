@@ -276,7 +276,7 @@ class ldarray(np.ndarray):
     def __new__(cls, input_=None, dim=None, dtype=None):
         
         # cast dim as lddim
-        if isinstance(dim, dict):
+        if not isinstance(dim, lddim):
             dim = lddim(**dim)
             
         ## create 0 filled array if no data is given in the constructor

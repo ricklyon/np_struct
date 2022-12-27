@@ -3,6 +3,7 @@ from structures import ldarray
 from pathlib import Path
 from time import time
 import numpy as np
+import matplotlib.pyplot as plt
 
 class TestLdArray(unittest.TestCase):
 
@@ -11,6 +12,8 @@ class TestLdArray(unittest.TestCase):
         data = np.arange(60).reshape(20, 3)
         ld = ldarray(data, dim=dim)
 
+        plt.plot(ld.sel(b='data1'))
+        plt.show()
         print(ld)
 
         print(ld.sel(a=slice(3, 6), b=slice('data1', 'data3', 2)))
