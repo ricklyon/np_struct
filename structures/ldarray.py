@@ -110,7 +110,7 @@ class lddim(OrderedDict):
                 dim.set_idx_handler(b=ex_handler)
 
         """
-        for k,v in kwargs:
+        for k,v in kwargs.items():
             if k in self.keys():
                 self.idx_handlers[k] = v
 
