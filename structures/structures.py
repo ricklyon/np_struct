@@ -25,12 +25,14 @@ class StructMeta(type):
 
         # initialize the bitfield base pointer and the position
         bit_base, bit_pos = None, 0
-
+        print(cls)
         ## walk through class definitions finding all supported numpy types, build bit fields, and attach enums
         for key, item in classdict.items():
+            print(key)
 
             ## ignore any class definitions that aren't supported numpy types
             if not isinstance(item, (np.ndarray, Struct)):
+                print('skip')
                 continue
 
             ## error if any private variables are used in class definition, or if there is a naming collision
@@ -69,8 +71,10 @@ class StructMeta(type):
             ## add each item to the cls definition dictionary
             cls_defs[key] = item
 
+        print(cls_defs)
         # set the maximum string length of the items in the class. Used for printing
-        classdict['_printwidth'] = max(len(k) for k in cls_defs.keys()) + 3
+        # print(cls_defs)
+        classdict['_printwidth'] = 20
 
         # pass items found in class definition to constructor so it can add all fields as instance members
         classdict['_cls_defs'] = cls_defs
@@ -227,7 +231,7 @@ class Struct(metaclass=StructMeta):
 
     def get_byte_size(self):
         self._setter = True
-        self._bsize = len(bytes(self)) if self._bsize == None else self._bsize
+        self._bsize = len(bytes(self)) if not hasattr(self, '_bsize') or self._bsize == None else self._bsize
         self._setter = False
 
         return self._bsize
