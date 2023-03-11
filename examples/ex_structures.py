@@ -2,8 +2,6 @@
 from numpy import uint8, uint16, float64, int16, uint32, string_
 import numpy as np
 from structures import Struct, ldarray, lddim
-from enum import Enum
-from rfnetwork import Sparam
 from pathlib import Path
 
 try:
