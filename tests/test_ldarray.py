@@ -18,5 +18,7 @@ class TestLdArray(unittest.TestCase):
 
         print(ld.sel(a=slice(3, 6), b=slice('data1', 'data3', 2)))
 
+    # def test_dates(self):
+
 if __name__ == '__main__':
     unittest.main()
