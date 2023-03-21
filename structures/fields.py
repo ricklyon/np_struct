@@ -114,3 +114,26 @@ class BitfieldBase(np.ndarray):
     def add_member(self, obj):
         self._bit_members.append(obj)
 
+class uint8(npfield):
+    pass
+
+class int8(npfield):
+    pass
+
+class uint16(npfield):
+    pass
+
+class int16(npfield):
+    pass
+
+class uint32(npfield):
+    pass
+
+class int32(npfield):
+    pass
+
+class float64(npfield):
+    pass
+
+class float32(npfield):
+    pass

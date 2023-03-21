@@ -62,7 +62,10 @@ class StructMeta(type):
                 bit_base, bit_pos = None, 0
 
                 # add the item dtype
-                dtype[key] = (key, item.dtype, item.shape)
+                if isinstance(item, Struct):
+                    dtype[key] = (key, item.dtype, (1,))
+                else:
+                    dtype[key] = (key, item.dtype, item.shape)
                 items[key] = item
 
             ## add each item to the cls definition dictionary
@@ -70,7 +73,7 @@ class StructMeta(type):
 
         # set the maximum string length of the items in the class. Used for printing
         # print(cls_defs)
-        classdict['_printwidth'] = 20
+        classdict['_printwidth'] = max(len(k) for k in cls_defs.keys()) + 3
 
         # pass items found in class definition to constructor so it can add all fields as instance members
         classdict['_cls_defs'] = cls_defs
@@ -95,45 +98,45 @@ class Struct(metaclass=StructMeta):
 
         # make a copy of the class defined dtype, struct items for this instance, and bitfield members
         dtype = dcopy(self._cls_dtype)
-        items = dcopy(self._cls_items)
+        self._items = dcopy(self._cls_items)
         
-        # copy each item in the class definition and add to the _struct_items list. 
+        # add all items to object dictionary so it's accessible as a member.
+        self.__dict__.update(**self._items)
+
+        # copy each item in the class definition and add to the _items list. 
         for key,item in self._cls_defs.items():
 
             # get variable length if it exists
-            shape = kwargs.pop(key, None)
-            
+            item_kwarg = kwargs.pop(key, None)
             # check if variable shape was given for this structure member
-            if shape is not None:
+            if item_kwarg is not None:
                 # broadcast to shape. Structs or lists of structs cannot be defined with variable lengths
-                item = np.broadcast_to(item, shape).copy()
-                # overwrite the dtyp and value in the structure dictionary
-                dtype[key] = (key, item.dtype, shape)
-                items[key] = item
-
-            # set bitfield pointers to the copied items
-            if isinstance(items.get(key, None), BitfieldBase):
-                base = items[key]
+                inst_item = type(item)(item_kwarg)
+                # overwrite the dtype and value in the structure dictionary
+                dtype[key] = (key, item.dtype, item.shape)
+                self._items[key] = inst_item
 
             # create copy of bitfield member since members are not included in the structure list and weren't
             # copied already.
             # the base bitfield has the same name as the lowest arg, it is included in the structure dictionary, but 
             # not the cls def, so it won't be a instance member.
             if getattr(item, 'bits', None) is not None:
+                # set bitfield pointers to the copied items
+                if isinstance(self._items.get(key, None), BitfieldBase):
+                    base = self._items[key]
+
                 item = dcopy(item)
                 item.set_bitfield_base(base)
-            else:
-                item = items[key]
-
-            # add all items to object dictionary so it's accessible as a member.
-            self.__dict__[key] = item
+                # add as a instance member but not as an item since non-base bitfield members
+                # are not included in the structure value.
+                self.__dict__[key] = item
 
             # set the byte order of all embedded structure objects
             if isinstance(item, Struct):
-                item._set_byte_order(byte_order)
+                self._items[key]._set_byte_order(byte_order)
 
         # set structure shape so it's compatible with other numpy types
-        self.shape = (len(items),)
+        self.shape = (len(self._items),)
 
         # update dtype and set structure items dictionary as instance member
         dtype = np.dtype([d for d in dtype.values()])
@@ -141,8 +144,6 @@ class Struct(metaclass=StructMeta):
         # this sets the byte order for all child items, except other structured arrays.
         self.dtype = dtype.newbyteorder(byte_order)
         self.byte_order = byte_order
-
-        self._struct_items = items
 
         self._setter = False
 
@@ -157,7 +158,7 @@ class Struct(metaclass=StructMeta):
             setattr(obj, k, dcopy(v))
 
         # update the pointers of bitfield members
-        items = obj._struct_items
+        items = obj._items
 
         for key, item in obj._cls_defs.items():
             # the bases are in the structure dictionary and not in the class definitions.
@@ -166,9 +167,13 @@ class Struct(metaclass=StructMeta):
                 base = items[key]
                 base._bit_members = []
 
-            # update the pointers of each bitfield member
-            if hasattr(item, 'set_bitfield_base'):
-                getattr(obj, key).set_bitfield_base(base)
+                # update the pointers of each bitfield member
+                if hasattr(item, 'set_bitfield_base'):
+                    getattr(obj, key).set_bitfield_base(base)
+
+            # re-link the class members with to the structure members since both were copied
+            if key in self._items.keys():
+                obj.__dict__[key] = obj._items[key]
 
         obj._setter = False
         return obj
@@ -180,7 +185,7 @@ class Struct(metaclass=StructMeta):
         self._setter = False
         
         # update the byte order recursively for all nested struct objects
-        for v in self._struct_items.values():
+        for v in self._items.values():
             if isinstance(v, Struct):
                 v._set_byte_order(byte_order)
 
@@ -190,7 +195,7 @@ class Struct(metaclass=StructMeta):
     def get_value(self):
 
         value = []
-        for v in self._struct_items.values():
+        for v in self._items.values():
             value.append(v.get_value())
 
         return np.array([tuple(value)], dtype=self.dtype)
@@ -198,7 +203,7 @@ class Struct(metaclass=StructMeta):
     def set_value(self, value):
         # unpacks value into the member items of the structure
 
-        for i, v in enumerate(self._struct_items.values()):
+        for i, v in enumerate(self._items.values()):
             v.set_value(value[i])
 
     def __len__(self):
