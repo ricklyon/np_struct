@@ -63,7 +63,7 @@ class StructMeta(type):
 
                 # add the item dtype
                 if isinstance(item, Struct):
-                    dtype[key] = (key, item.dtype, (1,))
+                    dtype[key] = (key, item.dtype)
                 else:
                     dtype[key] = (key, item.dtype, item.shape)
                 items[key] = item
@@ -72,7 +72,6 @@ class StructMeta(type):
             cls_defs[key] = item
 
         # set the maximum string length of the items in the class. Used for printing
-        # print(cls_defs)
         classdict['_printwidth'] = max(len(k) for k in cls_defs.keys()) + 3
 
         # pass items found in class definition to constructor so it can add all fields as instance members
@@ -196,15 +195,19 @@ class Struct(metaclass=StructMeta):
 
         value = []
         for v in self._items.values():
-            value.append(v.get_value())
+            v_ = v.get_value() if hasattr(v, 'get_value') else v
+            value.append(v_)
 
         return np.array([tuple(value)], dtype=self.dtype)
 
     def set_value(self, value):
         # unpacks value into the member items of the structure
-
         for i, v in enumerate(self._items.values()):
-            v.set_value(value[i])
+            # struct values are wrapped in an additional layer
+            if hasattr(v, 'set_value'):
+                v.set_value(value[i])
+            else:
+                v[:] = value[i]
 
     def __len__(self):
         return self.shape[0]
@@ -224,7 +227,11 @@ class Struct(metaclass=StructMeta):
             super().__setattr__(name, value)
 
         elif name in self._cls_defs.keys():
-            getattr(self, name).set_value(value)
+            item = getattr(self, name)
+            if hasattr(item, 'set_value'):
+                item.set_value(value)
+            else:
+                item[:] = value
 
         else:
             raise ValueError("Invalid field name: '{}'".format(name))
@@ -266,7 +273,7 @@ class Struct(metaclass=StructMeta):
                     
                 else:
                     value_str = str(item)
-                    p_item = item.get_value()
+                    p_item = item.get_value() if hasattr(item, 'get_value') else item
 
                 v1 = p_item.astype(dstr)
                 b0 = bytes(v1).hex().upper()
