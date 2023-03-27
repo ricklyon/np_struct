@@ -20,7 +20,10 @@ class StructMeta(type):
         cls_defs = {}   
 
         # initialize the bitfield base pointer and the position
-        bit_base, bit_pos = None, 0
+        bit_fields = {}
+        cur_bit_pos = 0
+        cur_bit_dtype = None
+        cur_bit_base = None
         ## walk through class definitions finding all supported numpy types, build bit fields, and attach enums
         for key, item in classdict.items():
 
@@ -31,41 +34,32 @@ class StructMeta(type):
             ## error if any private variables are used in class definition, or if there is a naming collision
             if hasattr(np.ndarray, key) or hasattr(Struct, key):
                 raise RuntimeError('Protected field name: ({})'.format(key))
-
-            ## add each item to the cls definition dictionary
-            cls_defs[key] = item
             
             # handle bit fields. the attribute 'bits' of items is an integer that determines how wide the item is in 
             # the bitfield. the item position in the bitfield is determined by it's order in the class 
             # definition. bit fields are defined the same as c++ with incrementing bit significance-- the MSB is last 
             # in the bitfield definition.
-            # if getattr(item, 'bits', None) is not None:
+            if getattr(item, 'bits', None) is not None:
 
-            #     # reset bitfield counters if dtype does not match the base or we are not currently in a bitfield
-            #     if bit_base is None or item.dtype != bit_base.dtype:
-            #         # create bitfield base for the next bit field members and reset position counter
-            #         bit_base = BitfieldBase(dtype=item.dtype)
-            #         bit_pos = 0
+                # reset bitfield counters if dtype does not match the base or we are not currently in a bitfield
+                if cur_bit_pos == 0 or item.dtype != cur_bit_dtype:
+                    # create bitfield base for the next bit field members and reset position counter
+                    cur_bit_dtype = item.dtype
+                    cur_bit_pos = 0
+                    cur_bit_base = key+'_base'
+                    cls_defs[cur_bit_base] = item
 
-            #         # bit field bases are included in the structured array value, so add the dtype for this item
-            #         dtype[key] = (key, item.dtype, item.shape)
-            #         items[key] = bit_base
+                bit_fields[key] = (cur_bit_base, cur_bit_pos, item.bits)
+                # increment the bit position
+                cur_bit_pos += item.bits
 
-            #     # set the bit position and base
-            #     item.set_bitfield_pos(bit_pos)
-            #     # increment the bit position
-            #     bit_pos = bit_pos + item.bits
+            else:
+                # reset the bit counter and base value
+                cur_bit_dtype = None
+                cur_bit_pos = 0
 
-            # else:
-            #     # reset the bit counter and base value
-            #     bit_base, bit_pos = None, 0
-
-            #     # add the item dtype
-            #     dtype[key] = (key, item.dtype) if item.shape == (1,) else (key, item.dtype, item.shape[0])
-            #     items[key] = item
-
-            ## add each item to the cls definition dictionary
-            cls_defs[key] = item
+                ## add each item to the cls definition dictionary
+                cls_defs[key] = item
 
         # set the maximum string length of the items in the class. Used for printing
         classdict['_printwidth'] = max(len(k) for k in cls_defs.keys()) + 3
@@ -75,9 +69,10 @@ class StructMeta(type):
         # pass items found in class definition to constructor so it can add all fields as instance members
         classdict['_cls_defs'] = cls_defs
 
+        classdict['_bit_fields'] = bit_fields
+
         # remove all items from the class so they won't appear as members
-        for key, value in cls_defs.items():
-            classdict.pop(key)
+        [classdict.pop(key) for key, value in cls_defs.items() if key in classdict.keys()]
 
         return super().__new__(metacls, cls, bases, classdict)
 
@@ -91,11 +86,6 @@ class Struct(np.ndarray, metaclass=StructMeta):
         for key, item in cls._cls_defs.items():
 
             dtype[key] = (key, item.dtype, item.shape)
-            # dtype[key] = (key, item.dtype, item.shape)
-
-        ## set dtype based on class name
-                # make a copy of the class defined dtype, struct items for this instance, and bitfield members
-        # for key, item in classdict.items():
 
         # update dtype and set structure items dictionary as instance member
         dtype = np.dtype([d for d in dtype.values()])
@@ -107,7 +97,18 @@ class Struct(np.ndarray, metaclass=StructMeta):
     
     def __setitem__(self, key, value):
         print(key, value)
-        super().__setitem__(key, value)
+
+        if isinstance(key, str) and key in self._bit_fields.keys():
+            base, pos, bits = self._bit_fields[key]
+            mask = 2**(bits) - 1
+            value &= mask
+            self[base] |= (value << pos)
+
+        else:
+
+            super().__setitem__(key, value)
+
+        
 
     def __getitem__(self, key):
 
@@ -120,8 +121,13 @@ class Struct(np.ndarray, metaclass=StructMeta):
         if isinstance(key, int):
             return super().__getitem__(key)[None].view(self.__class__)
 
+        if key in self._bit_fields.keys():
+            base, pos, bits = self._bit_fields[key]
+            mask = 2**(bits) - 1
+            base_value = self[base] & (mask << pos)
+            return (base_value >> pos)
 
-        if key in self._item_cls.keys():
+        elif key in self._item_cls.keys():
             if self.shape == (1,):
                 return super().__getitem__(0)[key].view(self._item_cls[key])
             else:
