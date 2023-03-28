@@ -8,8 +8,8 @@ from abc import abstractmethod
 class Packet(Struct):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.set_size(self.get_byte_size())
+        # super().__init__(*args, **kwargs)
+        self.set_size(self.get_size())
 
     @abstractmethod
     def set_size(self, value):
@@ -55,7 +55,7 @@ class PacketTransfer(object):
 
         ## base_packet will be re-used for every read
         self._pkt_base = self._pkt_class(byte_order=self._byte_order)
-        self._pkt_base_size = self._pkt_base.get_byte_size()
+        self._pkt_base_size = self._pkt_base.get_size()
 
         ## collect the packets that are subclasses of the base packet
         for pkt in pkt_class.__subclasses__():
@@ -92,7 +92,7 @@ class PacketTransfer(object):
         ## create packet of recognized packet type
         pkt = self._pkt_types[ptype](byte_order=self._byte_order, **hdr_fields)
 
-        if psize != pkt.get_byte_size():
+        if psize != pkt.get_size():
             self.flush(True)
             raise PacketSizeError('Packet size field ({}) does not match expected size ({}). Recieved: {}'.format(psize, pkt.get_byte_size(), bytes_))
 
@@ -122,8 +122,9 @@ class PacketTransfer(object):
     def pkt_write(self, packet, **kwargs):
         ## concatenate params from init (e.g. interface address) and kwargs (e.g. destination address)
         ## so everything is available in the build_header function
-        if packet.byte_order != self._byte_order:
-            packet._set_byte_order(self._byte_order)
+        #TODO: fix byte order
+        # if packet.byte_order != self._byte_order:
+        #     packet._set_byte_order(self._byte_order)
         packet.build_header(**{ **kwargs, **self._pkt_header_params})
         self.write(bytes(packet))
     
