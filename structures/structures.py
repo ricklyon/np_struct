@@ -114,10 +114,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
             self[base] |= (value << pos)
 
         else:
-
             super().__setitem__(key, value)
-
-        
 
     def __getitem__(self, key):
 
@@ -125,31 +122,32 @@ class Struct(np.ndarray, metaclass=StructMeta):
         if isinstance(key, (int, tuple, slice)) and self.shape == (1,):
             return super().__getitem__(key)
 
-        # make work for larger shapes
-        if isinstance(key, int):
-            return super().__getitem__(key)[None].view(self.__class__)
-
-        if key in self._bit_fields.keys():
+        if isinstance(key, str) and key in self._bit_fields.keys():
             base, pos, bits = self._bit_fields[key]
             mask = 2**(bits) - 1
             base_value = self[base] & (mask << pos)
             return (base_value >> pos)
 
-        elif key in self._item_cls.keys():
+        elif isinstance(key, str) and key in self._item_cls.keys():
             if self.shape == (1,):
                 return super().__getitem__(0)[key].view(self._item_cls[key])
             else:
                 return super().__getitem__(key).view(self._item_cls[key])
 
+
+        ret = super().__getitem__(key)
+        
+        if isinstance(ret, np.void):
+            return ret[None].view(self.__class__)
         else:
-            return super().__getitem__(key)
+            return ret
+
 
     def unpack(self, bytes):
         """ 
         Unpacks byte data into the structured array for this object. 
         """
         self[:] = np.frombuffer(bytes, dtype=self.dtype)
-        # self.set_value(value)
 
     def get_size(self):
         return self.itemsize * self.size
