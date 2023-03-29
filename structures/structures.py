@@ -170,41 +170,38 @@ class Struct(np.ndarray, metaclass=StructMeta):
             return super().__setattr__(key, value)
 
 
-    # def __repr__(self):
-    #     return str(self)
+    def __repr__(self):
+        return str(self)
     
-    # def __str__(self, tabs='', newline=False):
-    #     bstr = 'x' + bytes(self).hex().upper()
-    #     bstr = '' if len(bstr) > 24 else ' (' + bstr + ')'
-    #     base_name = self.__class__.__bases__[0].__name__
-    #     name = r'{} {}{}'.format(base_name, self.__class__.__name__, bstr)
+    def __str__(self, tabs='', newline=False):
+        base_name = self.__class__.__bases__[0].__name__
+        name = r'{} {}'.format(base_name, self.__class__.__name__)
         
-    #     build = tabs+str(name) + ':\n' if newline else str(name) + ':\n'
-    #     tabs = tabs + '    '
+        build = tabs+str(name) + ':\n' if newline else str(name) + ':\n'
+        tabs = tabs + '    '
 
-    #     for k in self._cls_defs.keys():
-    #         item = getattr(self, k)
+        for k in self._cls_defs.keys():
+            item = getattr(self, k)
 
-    #         key_tab = ' '*(self._printwidth-len(str(k))-1)
+            key_tab = ' '*(self._printwidth-len(str(k))-1)
 
-    #         if isinstance(item, Struct):
-    #             field_str = key_tab + item.__str__(tabs+ ' '*(self._printwidth))
-    #         else:
-    #             ## recast data type in big endian
-    #             dstr = '>' + item.dtype.str[1:]
+            if isinstance(item, Struct):
+                field_str = key_tab + item.__str__(tabs+ ' '*(self._printwidth))
+            else:
 
-    #             if getattr(item, 'bits', None) is not None:
-    #                 value_str = r'({}:{})'.format(item.bits + item._bit_pos, item._bit_pos) + str(item)
-    #                 p_item = (item & item._bit_mask) << item._bit_pos
+                # if k in self._bit_fields.keys():
+                #     _, pos, bits = self._bit_fields[k]
+                #     value_str = r'({}:{})'.format(bits + pos, pos) + str(item)
                     
-    #             else:
-    #                 value_str = str(item)
-    #                 p_item = item.get_value() if hasattr(item, 'get_value') else item
+                
+                if len(item.shape) > 1:
+                    value_str = str(item[..., 0])
+                else:
+                    value_str = str(item)
 
-    #             v1 = p_item.astype(dstr)
-    #             b0 = bytes(v1).hex().upper()
-    #             byte_str = ' (0x{})'.format(b0) if len(b0) <= 24 else ''
-    #             field_str = key_tab + str(item.dtype.name) + value_str + byte_str
+                value_str = value_str.replace('\n', '\n\t\t'+tabs+key_tab)
 
-    #         build += tabs + str(k)+':'+field_str+'\n'
-    #     return build[:-1]
+                field_str = key_tab + str(item.dtype.name) + value_str
+
+            build += tabs + str(k)+':'+field_str+'\n'
+        return build[:-1]
