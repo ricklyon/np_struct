@@ -11,5 +11,6 @@ setup(
     packages=['structures',],
     install_requires=(
         'numpy',
+        'pyserial',
     ),
 )

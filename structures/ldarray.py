@@ -5,6 +5,7 @@ import time
 from copy import deepcopy as dcopy
 import sys
 from . utils import check_shapes, round_to_multiple
+import datetime
 
 
 class lddim(OrderedDict):
@@ -36,7 +37,11 @@ class lddim(OrderedDict):
         self.idx_label_lut = {}
 
         ## Dictionary of custom indexing handlers
-        self.idx_handlers = {}
+        self.idx_handlers = kwargs.pop('idx_handlers', {})
+
+        self.idx_alias = kwargs.pop('idx_alias', {})
+
+        self.idx_conversion = kwargs.pop('idx_conversion', {})
 
         ## 
         self.squeeze_integer_idx = True
@@ -101,8 +106,16 @@ class lddim(OrderedDict):
 
         ## Provide default values for index precision if the values are floats
         if (k not in self.idx_precision) and (self[k].dtype in [f64, f32]):
-            self.idx_precision[k] = self.DEFAULT_PRECISION
+            self.idx_precision[k] = np.average(np.diff(v))
         
+        # convert time objects to milliseconds since epoch
+        elif isinstance(v[0], datetime.datetime):
+            self.idx_alias[k] = np.array([vv.timestamp() for vv in v])
+            if (k not in self.idx_precision):
+                self.idx_precision[k] = np.average(np.diff(self.idx_alias[k]))
+            if (k not in self.idx_conversion):
+                self.idx_conversion[k] =  lambda x: x.timestamp()
+
         ## add to lookup table otherwise
         else:
             self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v)}
@@ -340,6 +353,8 @@ class ldarray(np.ndarray):
                     ## also remove the key from the precision and handler dictionaries if it exsits.
                     ndim.idx_precision.pop(k, None)
                     ndim.idx_handlers.pop(k, None)
+                    ndim.idx_alias.pop(k, None)
+                    ndim.idx_conversion.pop(k, None)
                 else:
                     ## reduce the label array for current axis to match the indexed numpy array
                     ## idx has a value for every dimnesion so we can use i to get the correct index key
@@ -387,7 +402,9 @@ class ldarray(np.ndarray):
         s = super().__repr__()
         s+='\nDimensions: ' + str(self.shape)
         for k, v in self.dim.items():
-            s+='\n'+k + ': '+ np.array2string(v, threshold=5)
+            if isinstance(v[0], datetime.datetime):
+                v = np.array(v).astype('datetime64[m]')
+            s+='\n'+k + ': '+ np.array2string(v, threshold=3, suppress_small=True, edgeitems=2)
         
         return s + '\n'
 
@@ -414,6 +431,15 @@ class ldarray(np.ndarray):
 
             ## get values of the dimension labels. This is a 1D numpy array where each value is unique
             d_labels = self.dim[k]
+            if k in self.dim.idx_alias.keys():
+                d_labels = self.dim.idx_alias[k]
+
+            if k in self.dim.idx_conversion.keys():
+                conv = self.dim.idx_conversion[k]
+                if isinstance(v, slice):
+                    v = slice(conv(v.start), conv(v.stop), v.step)
+                else:
+                    v = conv(v)
 
             is_idx_slice = (v.__class__ == slice)
 
@@ -464,6 +490,7 @@ class ldarray(np.ndarray):
                 s_stop = s_stop+1 if s_stop is not None else s_stop
                 ## populate numpy index with slice of standard indices
                 np_index[np_i] = slice(s_start, s_stop, s_step)
+
 
             ## label index is exact (integer or string) so we use the lookup table
             else:
