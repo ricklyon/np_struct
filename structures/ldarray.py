@@ -94,9 +94,13 @@ class lddim(OrderedDict):
     def __setitem__(self, k, v):
         ## ensures each value of the dictionary is a numpy array and
         ## adds new values to the idx_precision dictionary if they are floats and the label look up table otherwise
-        
+    
         ## cast as numpy array
         v = np.array(v) if isinstance(v, (list, np.ndarray, tuple)) else np.array([v])
+
+        # convert dates to datetime
+        if isinstance(v[0], datetime.date):
+            v = np.array([dt.datetime(year=d.year, month=d.month, day=d.day) for d in v])
 
         ## call ordered dictionary __setitem__
         super().__setitem__(k, v)
@@ -114,7 +118,7 @@ class lddim(OrderedDict):
             if (k not in self.idx_precision):
                 self.idx_precision[k] = np.average(np.diff(self.idx_alias[k]))
             if (k not in self.idx_conversion):
-                self.idx_conversion[k] =  lambda x: x.timestamp()
+                self.idx_conversion[k] =  lambda x: (x.timestamp() if isinstance(x, dt.datetime) else dt.datetime(year=x.year, month=x.month, day=x.day).timestamp())
 
         ## add to lookup table otherwise
         else:
@@ -273,7 +277,7 @@ class ldarray(np.ndarray):
 
         ## copy dim and assign as member variable
         obj.dim = dcopy(dim)
-        
+
         return obj
 
 
@@ -402,7 +406,7 @@ class ldarray(np.ndarray):
         s = super().__repr__()
         s+='\nDimensions: ' + str(self.shape)
         for k, v in self.dim.items():
-            if isinstance(v[0], datetime.datetime):
+            if isinstance(v[0], datetime.date) or isinstance(v[0], datetime.datetime):
                 v = np.array(v).astype('datetime64[m]')
             s+='\n'+k + ': '+ np.array2string(v, threshold=3, suppress_small=True, edgeitems=2)
         
