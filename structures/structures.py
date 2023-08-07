@@ -121,8 +121,12 @@ class Struct(np.ndarray, metaclass=StructMeta):
         if isinstance(key, str) and key in self._bit_fields.keys():
             base, pos, bits = self._bit_fields[key]
             mask = 2**(bits) - 1
-            value &= mask
-            self[base] |= (value << pos)
+            # invert the mask in order to clear the current value
+            fullmask = 2**(getattr(self, base).itemsize *8) - 1
+            inv_mask = fullmask ^ (mask << pos)
+
+            self[base] &= inv_mask
+            self[base] |= ((value & mask) << pos)
 
         else:
             super().__setitem__(key, value)
@@ -200,7 +204,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
         for i, item_i in enumerate(idx):
             if len(idx) > 1:
                 build += tabs + '[\n'
-            for k in self._cls_defs.keys():
+            for k, v in self._cls_defs.items():
                 item = getattr(self[*tuple(item_i)], k)
 
                 key_tab = ' '*(self._printwidth-len(str(k))-1)
@@ -208,24 +212,30 @@ class Struct(np.ndarray, metaclass=StructMeta):
                 if isinstance(item, Struct):
                     tabs_struct = tabs_item + '    '
                     field_str = key_tab + item.__str__(tabs_struct)
+                    build += tabs_item + str(k)+':'+field_str+'\n'
+
+                elif hasattr(v, 'bits') and v.bits is not None:
+                        fields = [b_k for b_k, b in self._bit_fields.items() if b[0] == k]
+                        for f in fields:
+                            b_item = getattr(self, f)
+                            value_str = str(b_item).replace('\n', '\n\t\t'+tabs_item+key_tab)
+
+                            _, pos, bits = self._bit_fields[f]
+                            bits_str = r'({}:{})'.format(bits + pos, pos)
+
+                            key_tab = ' '*(self._printwidth-len(str(f))-1)
+                            field_str = key_tab + str(b_item.dtype.name) + bits_str + value_str
+
+
+                            build += tabs_item + str(f)+':'+field_str+'\n'
                 else:
 
-                    # if k in self._bit_fields.keys():
-                    #     _, pos, bits = self._bit_fields[k]
-                    #     value_str = r'({}:{})'.format(bits + pos, pos) + str(item)
-                        
-                    
-                    # if len(item.shape) > 1:
-                    #     value_str = str(item[..., 0])
-                    # else:
-                    #     
                     value_str = str(item)
-
                     value_str = value_str.replace('\n', '\n\t\t'+tabs_item+key_tab)
 
                     field_str = key_tab + str(item.dtype.name) + value_str
 
-                build += tabs_item + str(k)+':'+field_str+'\n'
+                    build += tabs_item + str(k) + ':'+field_str+'\n'
 
             if len(idx) > 1:
                 build += tabs + ']\n'
