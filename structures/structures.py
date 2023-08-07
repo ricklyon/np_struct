@@ -61,6 +61,9 @@ class StructMeta(type):
                 ## add each item to the cls definition dictionary
                 cls_defs[key] = item
 
+        if len(cls_defs) < 1:
+            raise ValueError('Empty structures not supported. Ensure members are supported types.')
+
         # set the maximum string length of the items in the class. Used for printing
         classdict['_printwidth'] = max(len(k) for k in cls_defs.keys()) + 3
 
@@ -82,10 +85,20 @@ class Struct(np.ndarray, metaclass=StructMeta):
     def __new__(cls, input_=None, shape=None, byte_order='<', **kwargs):
 
         dtype = od()    
+
+        if input_ is not None:
+            shape = input_.shape if shape is None else shape
+            dtype = input_.dtype
+            dtype.newbyteorder(byte_order)
+            obj = np.zeros(shape, dtype=dtype).view(cls)
+            obj[:] = input_
+            return obj
         
         for key, item in cls._cls_defs.items():
-
-            dtype[key] = (key, item.dtype, item.shape)
+            
+            shape_k = np.array(kwargs[key]).shape if key in kwargs.keys() else item.shape
+ 
+            dtype[key] = (key, item.dtype, shape_k)
 
         # update dtype and set structure items dictionary as instance member
         dtype = np.dtype([d for d in dtype.values()])
@@ -94,14 +107,12 @@ class Struct(np.ndarray, metaclass=StructMeta):
         shape = (1,) if shape is None else shape
         obj = np.zeros(shape, dtype=dtype).view(cls)
         
-        for k, v in cls._cls_defs.items():
+        for key, item in cls._cls_defs.items():
 
-            if k in  kwargs.keys():
-                obj[k] = kwargs[k]
+            if key in  kwargs.keys():
+                obj[key] = np.array(kwargs[key])
             else:
-                obj[k] = v
-
-        dtype.newbyteorder(byte_order)
+                obj[key] = item 
 
         return obj
     
@@ -173,35 +184,53 @@ class Struct(np.ndarray, metaclass=StructMeta):
     def __repr__(self):
         return str(self)
     
-    def __str__(self, tabs='', newline=False):
+    def __str__(self, tabs=''):
         base_name = self.__class__.__bases__[0].__name__
-        name = r'{} {}'.format(base_name, self.__class__.__name__)
-        
-        build = tabs+str(name) + ':\n' if newline else str(name) + ':\n'
-        tabs = tabs + '    '
 
-        for k in self._cls_defs.keys():
-            item = getattr(self, k)
+        shape_str = self.shape if self.shape != (1,) else ''
+        build = '{} {}: {}\n'.format(base_name, self.__class__.__name__, shape_str)
+        tabs_item = tabs + '    '
 
-            key_tab = ' '*(self._printwidth-len(str(k))-1)
+        # print first and last items
+        if self.shape != (1,):
+            idx = ([0]*len(self.shape), [-1]*len(self.shape))
+        else:
+            idx = (tuple(),)
 
-            if isinstance(item, Struct):
-                field_str = key_tab + item.__str__(tabs+ ' '*(self._printwidth))
-            else:
+        for i, item_i in enumerate(idx):
+            if len(idx) > 1:
+                build += tabs + '[\n'
+            for k in self._cls_defs.keys():
+                item = getattr(self[*tuple(item_i)], k)
 
-                # if k in self._bit_fields.keys():
-                #     _, pos, bits = self._bit_fields[k]
-                #     value_str = r'({}:{})'.format(bits + pos, pos) + str(item)
-                    
-                
-                if len(item.shape) > 1:
-                    value_str = str(item[..., 0])
+                key_tab = ' '*(self._printwidth-len(str(k))-1)
+
+                if isinstance(item, Struct):
+                    tabs_struct = tabs_item + '    '
+                    field_str = key_tab + item.__str__(tabs_struct)
                 else:
+
+                    # if k in self._bit_fields.keys():
+                    #     _, pos, bits = self._bit_fields[k]
+                    #     value_str = r'({}:{})'.format(bits + pos, pos) + str(item)
+                        
+                    
+                    # if len(item.shape) > 1:
+                    #     value_str = str(item[..., 0])
+                    # else:
+                    #     
                     value_str = str(item)
 
-                value_str = value_str.replace('\n', '\n\t\t'+tabs+key_tab)
+                    value_str = value_str.replace('\n', '\n\t\t'+tabs_item+key_tab)
 
-                field_str = key_tab + str(item.dtype.name) + value_str
+                    field_str = key_tab + str(item.dtype.name) + value_str
 
-            build += tabs + str(k)+':'+field_str+'\n'
+                build += tabs_item + str(k)+':'+field_str+'\n'
+
+            if len(idx) > 1:
+                build += tabs + ']\n'
+
+            if np.prod(self.shape) > 2 and i < 1:
+                build += tabs + '...\n'
+
         return build[:-1]

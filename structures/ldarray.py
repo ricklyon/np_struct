@@ -263,7 +263,7 @@ class ldarray(np.ndarray):
             dim = lddim(**dim)
             
         ## create 0 filled array if no data is given in the constructor
-        if np.all(input_ == None):
+        if input_ is None:
             shape = tuple([len(v) for k,v in dim.items()])
             obj = np.zeros(shape, dtype=dtype).view(cls)
 
