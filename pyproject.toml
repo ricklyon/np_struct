@@ -1,0 +1,31 @@
+[build-system]
+requires      = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "np-struct"
+version = "0.0.1"
+description = "interactive marker support for matplotlib"
+readme = "README.md"
+authors = [{ name = "Rick Lyon", email = "rlyon14@gmail.com" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["numpy", "structured array", "struct"]
+dependencies = [
+    "numpy",
+    "pyserial",
+]
+requires-python = ">=3.7"
+
+[project.optional-dependencies]
+dev = ["black", "flake8", "pytest"]
+
+[tool.setuptools.packages.find]
+include = ["np_struct"]
+
+[project.urls]
+repository = "https://github.com/ricklyon/np_struct"
