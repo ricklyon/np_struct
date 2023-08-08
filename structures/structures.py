@@ -8,6 +8,8 @@ _PROTECTED_FIELD_NAMES = ["value", "dtype", "shape", "unpack", "byte_order", "ge
 
 _BYTE_ORDER_TOKENS = ("=", "<", ">", "|")
 
+_SUPPORTED_NP_TYPES = (np.uint8, np.uint16, np.uint32, np.int16, np.int32, np.int64, np.float32, np.float64, np.complex128)
+
 class StructMeta(type):
 
     def __new__(metacls, cls, bases, classdict):
@@ -28,12 +30,14 @@ class StructMeta(type):
         for key, item in classdict.items():
 
             ## ignore any class definitions that aren't supported numpy types
-            if not isinstance(item, (np.ndarray, Struct, npfield)):
+            if not isinstance(item, (np.ndarray, Struct, npfield) + _SUPPORTED_NP_TYPES):
                 continue
 
             ## error if any private variables are used in class definition, or if there is a naming collision
             if hasattr(np.ndarray, key) or hasattr(Struct, key):
                 raise RuntimeError('Protected field name: ({})'.format(key))
+            
+            item = type(item)([item]) if not hasattr(item, '__len__') else item
             
             # handle bit fields. the attribute 'bits' of items is an integer that determines how wide the item is in 
             # the bitfield. the item position in the bitfield is determined by it's order in the class 
@@ -96,7 +100,11 @@ class Struct(np.ndarray, metaclass=StructMeta):
         
         for key, item in cls._cls_defs.items():
             
-            shape_k = np.array(kwargs[key]).shape if key in kwargs.keys() else item.shape
+            if key in kwargs.keys():
+                kwval = kwargs[key]
+                shape_k = (1,) if not hasattr(kwval, '__len__') else np.array(kwval).shape
+            else:
+                shape_k = item.shape
  
             dtype[key] = (key, item.dtype, shape_k)
 
@@ -110,14 +118,13 @@ class Struct(np.ndarray, metaclass=StructMeta):
         for key, item in cls._cls_defs.items():
 
             if key in  kwargs.keys():
-                obj[key] = np.array(kwargs[key])
+                obj[key] = kwargs[key]
             else:
                 obj[key] = item 
-
+    
         return obj
     
     def __setitem__(self, key, value):
-
         if isinstance(key, str) and key in self._bit_fields.keys():
             base, pos, bits = self._bit_fields[key]
             mask = 2**(bits) - 1
@@ -128,7 +135,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
             self[base] &= inv_mask
             self[base] |= ((value & mask) << pos)
 
-        else:
+        else:            
             super().__setitem__(key, value)
 
     def __getitem__(self, key):
@@ -182,7 +189,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
         if key in self._item_cls.keys() or key in self._bit_fields.keys():
             self[key] = value
         else:
-            return super().__setattr__(key, value)
+            raise ValueError('structure ({}) has no attribute: {}'.format(self.__class__.__name__, key))
 
 
     def __repr__(self):

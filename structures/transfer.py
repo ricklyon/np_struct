@@ -62,7 +62,7 @@ class PacketTransfer(object):
             if (pkt.__name__ in self._pkt_types): 
                 raise RuntimeError('Duplicate packet name: {}'.format(pkt.__name__))
             
-            ptype = pkt(byte_order=self._byte_order).parse_header()['type']
+            ptype = pkt(byte_order=self._byte_order).parse_header()['type'][0]
             
             if ptype in self._pkt_types.keys():
                 raise RuntimeError('Duplicate type fields for \'{}\' and \'{}\''.format(self._pkt_types[ptype].__name__, pkt.__name__))
@@ -83,8 +83,8 @@ class PacketTransfer(object):
 
         hdr_fields = self._pkt_base.parse_header(**{ **kwargs, **self._pkt_header_params})
 
-        psize = hdr_fields.pop('size')
-        ptype = hdr_fields.pop('type')
+        psize = hdr_fields.pop('size')[0]
+        ptype = hdr_fields.pop('type')[0]
 
         if ptype not in self._pkt_types.keys():
             raise PacketTypeError('Packet type \'{}\' not recognized. Recieved: {}'.format(ptype, bytes_))
@@ -122,9 +122,6 @@ class PacketTransfer(object):
     def pkt_write(self, packet, **kwargs):
         ## concatenate params from init (e.g. interface address) and kwargs (e.g. destination address)
         ## so everything is available in the build_header function
-        #TODO: fix byte order
-        # if packet.byte_order != self._byte_order:
-        #     packet._set_byte_order(self._byte_order)
         packet.build_header(**{ **kwargs, **self._pkt_header_params})
         self.write(bytes(packet))
     
@@ -249,80 +246,99 @@ class SerialInterface(PacketTransfer):
 class SocketInterface(PacketTransfer):
     open_ports = {}
 
-    def __init__(self, target, host=None, timeout=2, pkt_class=None, UDP=False, eol=None):
-        if isinstance(target, (tuple)):
-            self.target = target
-        else:
-            self.target = target, 5025
+    def __init__(self, target=None, host=None, timeout=2, pkt_class=None, eol=None):
+        """
+        Open a server or client socket that supports reading/writing structures. 
 
-        if (host == None):
-            self.host = socket.gethostbyname(socket.gethostname()), None
+        Parameters:
+        -----------
+        target: tuple, optional
+            socket address (ip addr, port) that client will connect to
+            Provide to configure socket as a client
+        host: tuple, optional
+            socket address (ip addr, port) that server will bind to, e.g. host = ('localhost', 50001)
+            Provide to configure socket as a server
+        """
+        if target and host:
+             self._udp = True
         else:
-            self.host =  host
-
-        self.sckt = None
+             self._udp = False
+             
+        self.target = target
+        self.host = host
+        self._host_skt = None
 
         self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
-        self.connected = False
         self.timeout = timeout
-        self.UDP = UDP
         self.rxBuffer = b''
 
         if (pkt_class != None):
             super(SocketInterface, self).__init__(pkt_class, addr=0x1)
 
-    def checkconnection(func):
-        def wrapper(self, *args, **kwargs):
-            opened = False
-            if(not self.connected):
-                opened = True
-                self.connect()
-            ret = func(self, *args, **kwargs)
-            if (opened):
-                self.close()
-            return ret
-        return wrapper
-
+        self.socket = None
+        self._connected = False
+        self._host_skt = None
+        # create socket in datagram mode
+        if self._udp:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.socket.settimeout(self.timeout)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.socket.bind(self.host)
+        # create server socket
+        elif self.host:
+            self._host_skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._host_skt.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._host_skt.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._host_skt.settimeout(self.timeout)
+            self._host_skt.bind(self.host)
+            self._host_skt.listen()
+        # create client socket
+        elif self.target:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(self.timeout)
+        else:
+            raise ValueError('No target or host provided.')
+        
     def flush(self, resetTX=True):
         self.rxBuffer = b''
 
-    def write(self, dataBytes):
-        if (not self.isConnected()):
-            raise RuntimeError('Socket ({}) is not connected.'.format(self.target))
-        if (self.UDP):
-            ##TODO: check that all data has been transmitted
-            self.sckt.sendto(dataBytes, self.target)
+    def write(self, data_bytes):
+        if not self.is_connected():
+            raise RuntimeError('Socket is not connected.')
+        
+        if self._udp:
+            self.socket.sendto(data_bytes, self.target)
         else:
-            self.sckt.sendall(dataBytes)
+            self.socket.sendall(data_bytes)
 
-    def readFromBuffer(self, nbytes):
-        if nbytes == None:
+    def _read_from_buffer(self, size):
+        if size == None:
             idx = self.rxBuffer.index(self.eol)
             rd = self.rxBuffer[:idx]
             self.rxBuffer = self.rxBuffer[idx+1:]
             return rd
         else:
-            rd = self.rxBuffer[:nbytes]
-            self.rxBuffer = self.rxBuffer[nbytes:]
+            rd = self.rxBuffer[:size]
+            self.rxBuffer = self.rxBuffer[size:]
             return rd
 
-    def bufferComplete(self, nbytes= None):
-        if nbytes == None:
+    def _is_read_complete(self, size= None):
+        if size == None:
             return self.eol in self.rxBuffer
         else:
-            return len(self.rxBuffer) >= nbytes
+            return len(self.rxBuffer) >= size
 
     def read(self, nbytes=None):
-        if (not self.isConnected()):
-            raise RuntimeError('Socket ({}) is not connected.'.format(self.target))
+        if not self.is_connected():
+            raise RuntimeError('Socket is not connected.')
 
         timeout = time.time() + self.timeout
         try:
             while(time.time() < timeout):
-                if (self.bufferComplete(nbytes)):
-                    return self.readFromBuffer(nbytes)
+                if (self._is_read_complete(nbytes)):
+                    return self._read_from_buffer(nbytes)
                 
-                rdbytes, addr = self.sckt.recvfrom(4096)
+                rdbytes = self.socket.recv(4096)
                 self.rxBuffer += rdbytes
 
         except socket.timeout:
@@ -332,48 +348,47 @@ class SocketInterface(PacketTransfer):
         self.close()
         raise TimeoutError('Socket Timeout. Recieved: {}'.format(self.rxBuffer))
             
-    def isConnected(self):
-        return self.connected
+    def is_connected(self):
+        return self._connected
 
     def connect(self):
-        if (not self.isConnected()):
-            _target = self.target[0] + ',' + str(self.target[1])
-            if _target in self.open_ports:
-                self.open_ports[_target].close()
+        if self.is_connected():
+            return
 
-            self.open_ports[_target] = self
-            self.connected = True
-            if (self.UDP):
-                self.sckt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self.sckt.settimeout(self.timeout)
-                self.sckt.bind(self.host)
-            else:
-                self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sckt.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.sckt.settimeout(self.timeout)
-                print(self.target)
-                self.sckt.connect(self.target)
+        # create socket in datagram mode
+        if self._udp:
+            pass
+        # create server socket and wait for a connection
+        elif self.host:
+            self.socket, _ = self._host_skt.accept()
+        # connect client to host socket
+        elif self.target:
+            self.socket.connect(self.target)
+        else:
+            raise ValueError('No target or host provided.')
         
-        self.enter()
-        return self
+        self._connected = bool(not self._udp)
 
-    def exit(self):
-        pass
-
-    def enter(self):
-        pass
-
-    def close(self):
-        pass
-        # if (self.isConnected()):
-        #     self.exit()
-        #     self.connected = False
-        #     self.sckt.shutdown(socket.SHUT_RDWR)
-        #     self.sckt.close()
-        
-    def __del__(self):
+    def __exit__(self, *args, **kwargs):
         self.close()
 
     def __enter__(self):
-        return self.connect()
+        self.connect()
+        return self
 
+    def close(self):
+        if not self.is_connected():
+            return
+
+        for s in [self._host_skt, self.socket]:
+            if s is None:
+                 continue
+            
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+                s.close()
+            except:
+                 pass
+        
+    def __del__(self):
+        self.close()
