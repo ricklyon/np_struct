@@ -4,7 +4,7 @@ from . fields import npfield
 from copy import deepcopy as dcopy
 from collections import OrderedDict as od
 
-_PROTECTED_FIELD_NAMES = ["value", "dtype", "shape", "unpack", "byte_order", "get_byte_size"]
+_PROTECTED_FIELD_NAMES = ["value", "dtype", "shape", "unpack", "byte_order", "get_size"]
 
 _BYTE_ORDER_TOKENS = ("=", "<", ">", "|")
 
