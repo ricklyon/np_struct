@@ -375,7 +375,7 @@ class SocketInterface(PacketTransfer):
         else:
             raise ValueError('No target or host provided.')
         
-        self._connected = bool(not self._udp)
+        self._connected = True
     
     def accept(self):
 
@@ -398,9 +398,13 @@ class SocketInterface(PacketTransfer):
         for s in [self._host_skt, self.socket]:
             if s is None:
                  continue
-            
+
             try:
                 s.shutdown(socket.SHUT_RDWR)
+            except:
+                 pass
+                    
+            try:
                 s.close()
             except:
                  pass
