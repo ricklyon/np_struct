@@ -280,12 +280,38 @@ class ldarray(np.ndarray):
 
         return obj
 
-
     def __array_finalize__(self, obj):
         ## required method of subclasses of numpy. Sets unique member variables of new instances
         if obj is None: return
         self.dim = getattr(obj, 'dim', lddim())
 
+    def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
+        args = []
+        for input_ in inputs:
+            if isinstance(input_, ldarray):
+                args.append(input_.view(np.ndarray))
+            else:
+                args.append(input_)
+
+        outputs = out
+        if outputs:
+            out_args = []
+            for output in outputs:
+                if isinstance(output, ldarray):
+                    out_args.append(output.view(np.ndarray))
+                else:
+                    out_args.append(output)
+            kwargs['out'] = tuple(out_args)
+
+        results = super().__array_ufunc__(ufunc, method, *args, **kwargs)
+
+        if check_shapes(results.shape, self.dim.shape):
+            results = results.view(ldarray)
+            results.dim = self.dim
+
+        return results
+
+    
     def sel(self, **keys):
         return self[keys]
 

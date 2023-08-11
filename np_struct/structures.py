@@ -217,7 +217,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
                 key_tab = ' '*(self._printwidth-len(str(k))-1)
 
                 if isinstance(item, Struct):
-                    tabs_struct = tabs_item + '    '
+                    tabs_struct = tabs_item + key_tab + '    '
                     field_str = key_tab + item.__str__(tabs_struct)
                     build += tabs_item + str(k)+':'+field_str+'\n'
 
@@ -238,7 +238,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
                 else:
 
                     value_str = str(item)
-                    value_str = value_str.replace('\n', '\n\t\t'+tabs_item+key_tab)
+                    value_str = value_str.replace('\n', '\n\t'+tabs_item+key_tab)
 
                     field_str = key_tab + str(item.dtype.name) + value_str
 
