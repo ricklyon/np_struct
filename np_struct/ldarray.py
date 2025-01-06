@@ -110,7 +110,10 @@ class lddim(OrderedDict):
 
         ## Provide default values for index precision if the values are floats
         if (k not in self.idx_precision) and (self[k].dtype in [f64, f32]):
-            self.idx_precision[k] = np.average(np.diff(v))
+            if len(v) == 1:
+                self.idx_precision[k] = 1e-10
+            else:
+                self.idx_precision[k] = np.average(np.diff(v))
         
         # convert time objects to milliseconds since epoch
         elif isinstance(v[0], datetime.datetime):
@@ -440,6 +443,12 @@ class ldarray(np.ndarray):
 
     def __repr__(self):
         return str(self)
+
+    def __format__(self, *args, **kwargs):
+        if self.size == 1 and len(self.shape):
+            return self.item().__format__(*args, **kwargs)
+        else:
+            return super().__format__(*args, **kwargs)
 
     def _v2idx(self, dct_idx):
         ### Converts dictionary indices to standard numpy indices. Using dictionaries as indices avoids the need
