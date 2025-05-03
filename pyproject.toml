@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "np-struct"
-version = "0.0.1"
-description = "user friendly interface for NumPy structured arrays"
+version = "0.0.2"
+description = "Interface for NumPy structured arrays"
 readme = "README.md"
 authors = [{ name = "Rick Lyon", email = "rlyon14@gmail.com" }]
 license = { file = "LICENSE" }
