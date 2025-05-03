@@ -1,9 +1,13 @@
 
 import time
-import serial
 import socket
 from . structures import Struct
 from abc import abstractmethod
+
+try:
+    import serial
+except ImportError as e:
+    pass
 
 class Packet(Struct):
 
@@ -184,10 +188,12 @@ class LoopBack(PacketTransfer):
         else:
             raise RuntimeError('Loopback interface timed out attempting to read {} bytes. Recieved: {}'.format(self.timeout, nbytes, self.rx_buffer))
 
+
 class SerialInterface(PacketTransfer):
 	OPEN_PORTS = {}
 
 	def __init__(self, port, baudrate=115200, timeout=1, pkt_class=None, addr=0x1, eol=None):
+
 		port = port.upper()
 		ser = serial.Serial()
 		ser.port = port
@@ -259,6 +265,7 @@ class SerialInterface(PacketTransfer):
 
 	def __exit__(self, type, value, traceback):
 		self.close()
+
 
 class SocketInterface(PacketTransfer):
     open_ports = {}

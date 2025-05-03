@@ -17,7 +17,6 @@ classifiers = [
 keywords = ["numpy", "structured array", "struct"]
 dependencies = [
     "numpy",
-    "pyserial",
 ]
 requires-python = ">=3.7"
 
