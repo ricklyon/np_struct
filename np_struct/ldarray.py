@@ -133,33 +133,35 @@ class Coords(OrderedDict):
         # adds new values to the dictionary
     
         # cast as numpy array
-        v = np.atleast_1d(v)
+        v_np = np.atleast_1d(v)
+
+        f64 = np.dtype(np.float64)
+        f32 = np.dtype(np.float32)
 
         # cast dates (only day/month/year) to more general datetime objects
         if isinstance(v[0], datetime.date):
             v = np.array([dt.datetime(year=d.year, month=d.month, day=d.day) for d in v])
 
-        f64 = np.dtype(np.float64)
-        f32 = np.dtype(np.float32)
-
         # Provide default values for index precision if the values are floats
-        if (k not in self.idx_precision.keys()) and (v.dtype in [f64, f32]):
-            if len(v) == 1:
-                self.idx_precision[k] = 1e-10
-            else:
-                self.idx_precision[k] = np.average(np.diff(v))
+        if v_np.dtype in [f64, f32]:
+            # add entry to the index precision for this dimension if it doesn't exist 
+            if k not in self.idx_precision.keys():
+                if len(v) == 1:
+                    self.idx_precision[k] = 1e-10
+                else:
+                    self.idx_precision[k] = np.average(np.diff(v_np))
+
+            super().__setitem__(k, v_np)
         
         elif isinstance(v[0], datetime.datetime):
             # use index handler for datetime objects
             self.idx_handlers[k] = datetime_idx_handler
+            super().__setitem__(k, v)
             
         # add to lookup table otherwise
         else:
             self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v)}
-
-        # call ordered dictionary __setitem__
-        super().__setitem__(k, v)
-
+            super().__setitem__(k, v)
     
     def get_axis_idx(self, key):
         """ 
@@ -474,8 +476,12 @@ class ldarray(np.ndarray):
 
             if isinstance(v[0], datetime.datetime):
                 v = np.array(v).astype('datetime64[m]')
+            if isinstance(v, np.ndarray):
+                v_str = np.array2string(v, threshold=3, suppress_small=True, edgeitems=2, prefix="  ")
+            else:
+                v_str = "  " + str(v)
 
-            s+='\n  '+k + ': '+ np.array2string(v, threshold=3, suppress_small=True, edgeitems=2, prefix="  ")
+            s+='\n  '+k + ': '+ v_str
         
         return s + '\n'
 
@@ -596,7 +602,8 @@ class ldarray(np.ndarray):
 
         # build dtype and value from dimension labels
         # dtype for a structured array is a tuple in the format (name, dtype, shape)
-        for k,v in self.coords.items():
+        for k, v in self.coords.items():
+            v = np.atleast_1d(v)
             dim_value.append(v)
             dim_dtype.append((k, v.dtype, v.shape))
 
