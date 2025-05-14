@@ -132,37 +132,39 @@ class Coords(OrderedDict):
     def __setitem__(self, k, v):
         # adds new values to the dictionary
     
-        # cast as numpy array
-        v_np = np.atleast_1d(v)
+        # cast as list
+        v = [v] if isinstance(v, (str, int, float)) else v
+        v_1d = np.atleast_1d(v)
 
         f64 = np.dtype(np.float64)
         f32 = np.dtype(np.float32)
 
-        # cast dates (only day/month/year) to more general datetime objects
-        if isinstance(v[0], datetime.date):
-            v = np.array([dt.datetime(year=d.year, month=d.month, day=d.day) for d in v])
-
         # Provide default values for index precision if the values are floats
-        if v_np.dtype in [f64, f32]:
+        if v_1d.dtype in [f64, f32]:
             # add entry to the index precision for this dimension if it doesn't exist 
             if k not in self.idx_precision.keys():
-                if len(v) == 1:
+                if len(v_1d) == 1:
                     self.idx_precision[k] = 1e-10
                 else:
-                    self.idx_precision[k] = np.average(np.diff(v_np))
+                    self.idx_precision[k] = np.average(np.diff(v_1d))
 
-            super().__setitem__(k, v_np)
-        
-        elif isinstance(v[0], datetime.datetime):
+            super().__setitem__(k, v_1d)
+
+        elif isinstance(v_1d[0], (datetime.datetime, datetime.date)):
+            # cast dates (only day/month/year) to more general datetime objects
+            if isinstance(v_1d[0], datetime.date):
+                v_1d = np.array([dt.datetime(year=d.year, month=d.month, day=d.day) for d in v])
+
             # use index handler for datetime objects
             self.idx_handlers[k] = datetime_idx_handler
-            super().__setitem__(k, v)
-            
-        # add to lookup table otherwise
+            super().__setitem__(k, v_1d)
+
         else:
+            # add to lookup table
             self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v)}
             super().__setitem__(k, v)
-    
+
+
     def get_axis_idx(self, key):
         """ 
         Returns the axis (dimension) index that 'key' has in the lddarray that uses this lddim.
@@ -339,6 +341,16 @@ class ldarray(np.ndarray):
         return results
     
 
+    def __copy__(self):
+        obj = super().__copy__()
+        obj.coords = dcopy(self.coords)
+        return obj
+
+
+    def __deepcopy__(self, memo):
+        return self.__copy__()
+
+
     def sel(self, **keys):
         return self[keys]
 
@@ -421,7 +433,7 @@ class ldarray(np.ndarray):
             else:
                 # reduce the label array for the current axis to match the indexed numpy array.
                 # idx has a value for every dimension so we can use i to get the correct index key
-                ncoords[k] = v[idx[i]]
+                ncoords[k] = np.array(v)[idx[i]]
 
         # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
         if not check_shapes(obj.shape, ncoords.shape):
@@ -479,7 +491,7 @@ class ldarray(np.ndarray):
             if isinstance(v, np.ndarray):
                 v_str = np.array2string(v, threshold=3, suppress_small=True, edgeitems=2, prefix="  ")
             else:
-                v_str = "  " + str(v)
+                v_str = str(v)
 
             s+='\n  '+k + ': '+ v_str
         
@@ -512,10 +524,17 @@ class ldarray(np.ndarray):
             coords_k = self.coords[k]
 
             is_idx_slice = isinstance(v, slice)
+            is_idx_list = isinstance(v, (list, tuple, np.ndarray))
+
+            # allow single value coordinates as lists or tuples
+            if is_idx_list and len(v) > 1:
+                raise IndexError("Only single item lists are supported as indices.")
 
             # cast v as a slice if not already, this allows us to use v.start and v.stop below. Both v.start and 
             # v.stop will be the same when a single value is cast to a slice.
-            if not is_idx_slice:
+            if is_idx_list:
+                v = slice(v[0], v[0], None)
+            elif not is_idx_slice:
                 v = slice(v, v, None)
             
             # check if this dimension has a custom handler defined
@@ -582,7 +601,7 @@ class ldarray(np.ndarray):
                 np_index[np_i] = slice(s_start, s_stop, s_step)
 
             # if indexed with single values, convert the index from a slice to a integer
-            if not is_idx_slice:
+            if not is_idx_slice and not is_idx_list:
                 np_index[np_i] = int(np_index[np_i].start)
 
         return tuple(np_index)

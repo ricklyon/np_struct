@@ -6,6 +6,7 @@ import datetime as dt
 from dateutil import relativedelta as rdt    
 import os
 
+
 class TestLdArray(unittest.TestCase):
 
     def test_exact_index(self):
@@ -23,6 +24,20 @@ class TestLdArray(unittest.TestCase):
         ld[dict(a=15, b='data3')] = 3
         npt.assert_array_equal(ld[1], np.array([3,4,5]))
         npt.assert_array_equal(ld[15, 2], 3)
+
+    def test_advanced_indexing(self):
+        coords = dict(a=np.arange(0, 20), b=['data1', 'data2', 'data3'])
+        data = np.arange(60).reshape(20, 3)
+        ld = ldarray(data, coords=coords)
+
+        ld_1 = ld[:, np.array([1, 0])]
+        npt.assert_array_equal(ld_1, data[:, np.array([1, 0])])
+        npt.assert_array_equal(ld_1.coords["b"], ["data2", "data1"])
+        npt.assert_array_equal(ld_1.coords["a"], np.arange(0, 20))
+
+        ld_2 = ld[np.array([1, 0]), 0]
+        npt.assert_array_equal(ld_2, data[np.array([1, 0]), 0])
+        npt.assert_array_equal(ld_2.coords["a"], [1, 0])
 
     def test_float_index(self):
 
