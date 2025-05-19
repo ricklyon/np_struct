@@ -3,6 +3,9 @@ import time
 import socket
 from . structures import Struct
 from abc import abstractmethod
+import threading
+from typing import Callable
+from time import sleep
 
 try:
     import serial
@@ -356,9 +359,12 @@ class SocketInterface(PacketTransfer):
         return self._connected
 
     def connect(self):
+        
+        # close existing connections
         if self.is_connected():
             self.close()
 
+        self._connected = True
         # create socket in datagram mode
         if self._udp:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -381,8 +387,6 @@ class SocketInterface(PacketTransfer):
             self.socket.connect(self.target)
         else:
             raise ValueError('No target or host provided.')
-        
-        self._connected = True
     
     def accept(self):
 
@@ -399,6 +403,7 @@ class SocketInterface(PacketTransfer):
         return self
 
     def close(self):
+
         if not self.is_connected():
             return
 
@@ -420,3 +425,60 @@ class SocketInterface(PacketTransfer):
         
     def __del__(self):
         self.close()
+
+
+class PacketServer(threading.Thread):
+
+    def __init__(
+        self, 
+        host: tuple, 
+        pkt_class: Packet,
+        pkt_handler: Callable[[Packet], Packet] = None, 
+        timeout: float = 2
+    ):
+        """
+        
+        """
+
+        super().__init__()
+        self.terminate_flag = threading.Event()
+        self.interface = SocketInterface(host=host, pkt_class=pkt_class, timeout=timeout)
+        self.pkt_handler = pkt_handler
+        self._thread_completed = False
+
+        # default is a simple echo server if no handler is given
+        if self.pkt_handler is None:
+            self.pkt_handler = lambda pkt: pkt
+
+    def stop(self):
+        self.terminate_flag.set()
+        # block until interface has timed out and closed the connection
+        self.join()
+
+    def run(self):
+
+        while not self.terminate_flag.is_set():
+            # accept connections from clients until the terminate flag is set
+            try:
+                self.interface.connect()
+            except TimeoutError:
+                self.interface.close()
+                continue
+            
+            # if connection made, read packet from socket. Packet may be any type that inherits from BasePacket
+            rxpkt = self.interface.pkt_read()
+
+            txpkt = self.pkt_handler(rxpkt)
+            self.interface.pkt_write(txpkt)
+            self.interface.close()
+
+        self._thread_completed = True
+
+    def __exit__(self, *args, **kwargs):
+        self.stop()
+
+    def __enter__(self):
+        self.start()
+        # give a bit of time for the thread to open the connection
+        sleep(0.01)
+        return self
