@@ -32,6 +32,8 @@ def datetime_idx_handler(v, coords: np.ndarray):
     # if str, treat as UTC formatted string, use same format as is printed with the ldarray __str__ method.
     elif isinstance(v, str):
         v_ts = datetime.datetime.strptime(v, '%Y-%m-%dT%H:%M').timestamp()
+    else:
+        raise NotImplementedError(f"Unsupported datetime index: {type(v)}")
 
     # get index of the minimum distance to the indexing timestamp
     return np.argmin(np.abs(coords_ts - v_ts))
@@ -353,20 +355,18 @@ class ldarray(np.ndarray):
 
     def sel(self, **keys):
         return self[keys]
-
+    
 
     def __getitem__(self, key):
-        try:
-            return self.getitem(key)
-        except Exception:
-            return super().__getitem__(key)
-
-
-    def getitem(self, key):
         # called whenever array is indexed
         
         # if coords were dropped, use the normal ndarray __getitem__, dictionary coordinates will raise an error here
         if self.coords is None:
+
+            # raise an error if key is a dictionary
+            if isinstance(key, dict):
+                raise IndexError(f"Unable to use dictionary {key} to index an array without coords.")
+            
             return super().__getitem__(key)
 
         # if index is a dictionary, use the dimension labels to index
@@ -382,8 +382,7 @@ class ldarray(np.ndarray):
             return obj
 
         # index is a standard index of slices or integers so pass key to the numpy indexing routine.
-        # this object will have the same coords (not copied) as the object it was indexed from since numpy uses 
-        # the __array_finalize__ method declared above to construct the new array.
+        # this object will have the coords set to None by __array_finalize___
         obj = super(ldarray, self).__getitem__(key)
         
         # shape length can be greater after indexing if np.newaxis was used. In this case just
@@ -401,47 +400,52 @@ class ldarray(np.ndarray):
 
         # At this point, we need to index the dimension dictionary so it matches the obj data,
         # and remove axis that were indexed out completely.
+        try:
+            # Cast index key as a tuple if it's a single value
+            nkey = tuple(key) if isinstance(key, (tuple, list)) else (key,)
 
-        # Cast index key as a tuple if it's a single value
-        nkey = tuple(key) if isinstance(key, (tuple, list)) else (key,)
+            # Initialize list of indices for each dimension that will be used to index the label arrays in dim. 
+            # Length is the original array shape length so it matches ndim.
+            idx = [slice(None,None) for i in range(len(self.shape))]
+            
+            # step through index keys and update idx with the appropriate keys.
+            # Keys are always in order of the array dimensions, but axis can be skipped with the Ellipsis operator.
+            idx_i = 0 
+            for ii, k in enumerate(nkey):
+                # jump the current index (idx_i) ahead if there is an Ellipsis.
+                if isinstance(k, type(Ellipsis)):
+                    # key after an Ellipsis indexes the dimension starting from the end of the key list
+                    idx_i = len(idx) - (len(nkey) - idx_i) 
 
-        # Initialize list of indices for each dimension that will be used to index the label arrays in dim. 
-        # Length is the original array shape length so it matches ndim.
-        idx = [slice(None,None) for i in range(len(self.shape))]
+                else:
+                    # update idx with the key, if no key is given for a axis it defaults to ':'
+                    idx[idx_i] = k
+
+                idx_i += 1
+
+            # use idx to index each array of dimension labels in ndim
+            for i, (k,v) in enumerate(self.coords.items()):
+                # numpy removes the dimension if indexed with a integer, so remove it from the dimension label dictionary.
+                if isinstance(idx[i], int):
+                    ncoords.pop(k)
+
+                else:
+                    # reduce the label array for the current axis to match the indexed numpy array.
+                    # idx has a value for every dimension so we can use i to get the correct index key
+                    ncoords[k] = np.array(v)[idx[i]]
+
+            # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
+            if not check_shapes(obj.shape, ncoords.shape):
+                return obj.view(np.ndarray)
+
+            # if dim and the obj shape match, update the dim member of the indexed obj and return
+            obj.coords = ncoords
+            return obj
         
-        # step through index keys and update idx with the appropriate keys.
-        # Keys are always in order of the array dimensions, but axis can be skipped with the Ellipsis operator.
-        idx_i = 0 
-        for ii, k in enumerate(nkey):
-            # jump the current index (idx_i) ahead if there is an Ellipsis.
-            if isinstance(k, type(Ellipsis)):
-                # key after an Ellipsis indexes the dimension starting from the end of the key list
-                idx_i = len(idx) - (len(nkey) - idx_i) 
-
-            else:
-                # update idx with the key, if no key is given for a axis it defaults to ':'
-                idx[idx_i] = k
-
-            idx_i += 1
-
-        # use idx to index each array of dimension labels in ndim
-        for i, (k,v) in enumerate(self.coords.items()):
-            # numpy removes the dimension if indexed with a integer, so remove it from the dimension label dictionary.
-            if isinstance(idx[i], int):
-                ncoords.pop(k)
-
-            else:
-                # reduce the label array for the current axis to match the indexed numpy array.
-                # idx has a value for every dimension so we can use i to get the correct index key
-                ncoords[k] = np.array(v)[idx[i]]
-
-        # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
-        if not check_shapes(obj.shape, ncoords.shape):
-            return obj.view(np.ndarray)
-
-        # if dim and the obj shape match, update the dim member of the indexed obj and return
-        obj.coords = ncoords
-        return obj
+        # if the coords were unable to be indexed, clear the coords and return a unlabeled numpy array.
+        except Exception:
+            obj.coords = None
+            return obj
 
 
     def __setitem__(self, key, value):
@@ -476,7 +480,8 @@ class ldarray(np.ndarray):
 
 
     def __str__(self):
-
+        
+        LEN_THRESHOLD = 7
         s = super().__repr__()
 
         if self.coords is None:
@@ -489,9 +494,16 @@ class ldarray(np.ndarray):
             if isinstance(v[0], datetime.datetime):
                 v = np.array(v).astype('datetime64[m]')
             if isinstance(v, np.ndarray):
-                v_str = np.array2string(v, threshold=3, suppress_small=True, edgeitems=2, prefix="  ")
+                v_str = np.array2string(v, threshold=LEN_THRESHOLD, suppress_small=True, edgeitems=2, prefix="  ")
             else:
-                v_str = str(v)
+                # abbreviate long coordinate lists
+                if len(v) > LEN_THRESHOLD:
+                    v_start = v[:int(LEN_THRESHOLD / 2)]
+                    v_end = v[-int(LEN_THRESHOLD / 2):]
+                    v_str = str(v_start)[:-1] + ", ... " + str(v_end)[1:]
+                else:
+                    v_str = str(v)
+
 
             s+='\n  '+k + ': '+ v_str
         
@@ -543,10 +555,10 @@ class ldarray(np.ndarray):
                 handler = self.coords.idx_handlers[k]
 
                 # call handler for each start, stop and step value
-                slc_list = [handler(vv, coords_k) if vv is not None else None for vv in [v.start, v.stop, v.step]]
+                slc_list = [handler(vv, coords_k) if vv is not None else None for vv in [v.start, v.stop]]
 
                 # populate numpy index with slice of standard indices
-                np_index[np_i] = slice(slc_list[0], slc_list[1] + 1, slc_list[2])
+                np_index[np_i] = slice(slc_list[0], slc_list[1] + 1, v.step)
 
             # The dimensional key will be in the idx_precision dictionary if the labels are floats.
             # Use approximate indexing based on index precision given in the lddim class.
