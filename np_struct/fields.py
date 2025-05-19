@@ -32,10 +32,9 @@ class npfield(np.ndarray):
         self.doc = getattr(obj, 'doc', "")
         self.enum = getattr(obj, 'enum', None)
         
-    def __array_wrap__(self, out_arr, context=None):
+    def __array_wrap__(self, out_arr, context=None, return_scalar=False):
         
         dtype = np.dtype(self.__class__.__name__.lower())
-        
         return out_arr.astype(dtype)
 
 class uint8(npfield):

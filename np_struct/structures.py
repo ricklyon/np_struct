@@ -1,12 +1,6 @@
-import copy
 import numpy as np
 from . fields import npfield
-from copy import deepcopy as dcopy
 from collections import OrderedDict as od
-
-_PROTECTED_FIELD_NAMES = ["value", "dtype", "shape", "unpack", "byte_order", "get_size"]
-
-_BYTE_ORDER_TOKENS = ("=", "<", ">", "|")
 
 _SUPPORTED_NP_TYPES = (np.uint8, np.uint16, np.uint32, np.int16, np.int32, np.int64, np.float32, np.float64, np.complex128)
 
