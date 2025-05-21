@@ -1,5 +1,5 @@
 import numpy as np
-from . fields import npfield
+from . bitfields import bitfield
 from collections import OrderedDict as od
 
 _SUPPORTED_NP_TYPES = (np.uint8, np.uint16, np.uint32, np.int16, np.int32, np.int64, np.float32, np.float64, np.complex128)
@@ -24,7 +24,7 @@ class StructMeta(type):
         for key, item in classdict.items():
 
             ## ignore any class definitions that aren't supported numpy types
-            if not isinstance(item, (np.ndarray, Struct, npfield) + _SUPPORTED_NP_TYPES):
+            if not isinstance(item, (np.ndarray, Struct, bitfield) + _SUPPORTED_NP_TYPES):
                 continue
 
             ## error if any private variables are used in class definition, or if there is a naming collision
@@ -157,7 +157,6 @@ class Struct(np.ndarray, metaclass=StructMeta):
             return ret[None].view(self.__class__)
         else:
             return ret
-
 
     def unpack(self, bytes):
         """ 

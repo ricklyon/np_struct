@@ -1,9 +1,8 @@
 
 import numpy as np
-from copy import deepcopy as dcopy
 
 
-class npfield(np.ndarray):
+class bitfield(np.ndarray):
 
     def __new__(cls, input_=None, bits=None, doc=None, dtype=None, enum=None):
         
@@ -37,26 +36,26 @@ class npfield(np.ndarray):
         dtype = np.dtype(self.__class__.__name__.lower())
         return out_arr.astype(dtype)
 
-class uint8(npfield):
+class uint8(bitfield):
     pass
 
-class int8(npfield):
+class int8(bitfield):
     pass
 
-class uint16(npfield):
+class uint16(bitfield):
     pass
 
-class int16(npfield):
+class int16(bitfield):
     pass
 
-class uint32(npfield):
+class uint32(bitfield):
     pass
 
-class int32(npfield):
+class int32(bitfield):
     pass
 
-class float64(npfield):
+class float64(bitfield):
     pass
 
-class float32(npfield):
+class float32(bitfield):
     pass
