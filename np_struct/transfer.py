@@ -13,48 +13,21 @@ except ImportError as e:
     pass
 
 class Packet(Struct):
-
-    def __init__(self, *args, **kwargs):
-        # super().__init__(*args, **kwargs)
-        self.set_psize(self.get_size())
-
-    @abstractmethod
-    def set_psize(self, value):
-        """ Writes value to the packet size field
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def set_ptype(self, value):
-        """ Writes value to the packet type field
-        """
-        raise NotImplementedError()
-    
-    @abstractmethod
-    def get_psize(self):
-        """ Returns value of the packet size field
-        """
-        raise NotImplementedError()
     
     @abstractmethod
     def get_ptype(self):
-        """ Returns value of paket type field
+        """ 
+        Returns value of packet type field
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def parse_header(self, **params):
-        """ Reads the packet header and returns a dictionary that is passed into the packet constructor
+    @classmethod
+    def from_header(cls, hdr, **kwargs):
         """
-        return {}
+        Initializes an empty packet object given a fully populated header. 
+        """
+        return cls()
 
-    @abstractmethod
-    def build_header(self, **params):
-        """ Called just before pkt_write().
-            All kwargs passed into the __init__ function of the Packet interface can be found in params,
-            as well as any passed into pkt_write() or pkt_sendrecv()
-        """
-        pass
 
 class PacketError(TypeError):
     pass
@@ -67,57 +40,53 @@ class PacketSizeError(PacketError):
 
 class PacketTransfer(object):
     
-    def __init__(self, pkt_class, **kwargs):
+    def __init__(self, header: Packet, **kwargs):
 
-        self._pkt_class = pkt_class
+        self._header = header
         self._byte_order = kwargs.pop('byte_order', '<')
         self._pkt_header_params = kwargs
         self._pkt_types = {}
 
-        ## base_packet will be re-used for every read
-        self._pkt_base = self._pkt_class(byte_order=self._byte_order)
-        self._pkt_base_size = self._pkt_base.get_size()
+        ## header instance is re-used for every read
+        self._hdr_obj = self._header(byte_order=self._byte_order)
+        self._header_size = self._hdr_obj.get_size()
 
-        ## collect the packets that are subclasses of the base packet
-        for pkt in pkt_class.__subclasses__():
-            if (pkt.__name__ in self._pkt_types): 
-                raise RuntimeError('Duplicate packet name: {}'.format(pkt.__name__))
+        # create a map (using the type as the key) of the packets that have the header as their first member
+        for pkt in Packet.__subclasses__():
+
+            pkt_hdr = list(pkt._cls_defs.values())[0]
+
+            if pkt_hdr.__class__ != header:
+                 continue
             
-            ptype = pkt(byte_order=self._byte_order).get_ptype()[0]
+            ptype = pkt_hdr.get_ptype().item()
             
             if ptype in self._pkt_types.keys():
-                raise RuntimeError('Duplicate type fields for \'{}\' and \'{}\''.format(self._pkt_types[ptype].__name__, pkt.__name__))
+                raise RuntimeError('Duplicate type fields for \'{}\' and \'{}\''.format(
+                    self._pkt_types[ptype].__name__, pkt.__name__)
+                )
             
             self._pkt_types[ptype] = pkt
 
-    def pkt_read(self, **kwargs):
-        """ Unpack bytes_ into Packet object. 
+    def pkt_read(self) -> Packet:
+        """ 
+        Reads a packet from an interface. 
         """
-        bytes_ = self.read(self._pkt_base_size)
-
-        if len(bytes_) < self._pkt_base_size:
-            self.flush(True)
-            raise PacketSizeError('Packet size field ({}) is smaller than base packet length ({}). Recieved: {}\n{}'.format(psize, self._pkt_base_size, bytes_))
+        bytes_ = self.read(self._header_size)
 
         # unpack header into base packet 
-        self._pkt_base.unpack(bytes_[:self._pkt_base_size])
+        self._hdr_obj.unpack(bytes_[:self._header_size])
 
-        hdr_fields = self._pkt_base.parse_header(**{ **kwargs, **self._pkt_header_params})
-
-        psize = self._pkt_base.get_psize()[0]
-        ptype = self._pkt_base.get_ptype()[0]
+        ptype = self._hdr_obj.get_ptype().item()
 
         if ptype not in self._pkt_types.keys():
-            raise PacketTypeError('Packet type \'{}\' not recognized. Recieved: {}'.format(ptype, bytes_))
+            raise PacketTypeError('Packet type \'{}\' not recognized. Received: {}'.format(ptype, bytes_))
         
-        ## create packet of recognized packet type
-        pkt = self._pkt_types[ptype](byte_order=self._byte_order, **hdr_fields)
+        # create empty packet of recognized packet type
+        pkt = self._pkt_types[ptype].from_header(self._hdr_obj, byte_order=self._byte_order)
 
-        if psize != pkt.get_size():
-            self.flush(True)
-            raise PacketSizeError('Packet size field ({}) does not match expected size ({}). Recieved: {}'.format(psize, pkt.get_size(), bytes_))
-
-        rm_len = int(psize - self._pkt_base_size)
+        # unpack remaining bytes into packet
+        rm_len = int(pkt.get_size() - self._header_size)
         if rm_len > 0:
             bytes_ += self.read(rm_len)
 
@@ -125,6 +94,20 @@ class PacketTransfer(object):
                 
         return pkt
 
+    def pkt_write(self, packet: Packet):
+        """
+        Send packet over an interface.
+        """
+        self.write(bytes(packet))
+    
+    def pkt_sendrecv(self, packet: Packet) -> Packet:
+        """
+        Send packet over an interface and wait for a packet response.
+        """
+        self.flush(False)
+        self.pkt_write(packet)
+        return self.pkt_read()
+    
     @abstractmethod
     def flush(self, reset_tx=True): 
         """ Clear rx buffer of interface, clear tx buffer if reset_tx is True.
@@ -138,27 +121,16 @@ class PacketTransfer(object):
         raise NotImplementedError()
 
     @abstractmethod
-    def read(self, nbytes=None):
+    def read(self, nbytes=None) -> bytes:
         """ Reads nbytes (int) from interface.
         """
         raise NotImplementedError()
-
-    def pkt_write(self, packet, **kwargs):
-        ## concatenate params from init (e.g. interface address) and kwargs (e.g. destination address)
-        ## so everything is available in the build_header function
-        packet.build_header(**{ **kwargs, **self._pkt_header_params})
-        self.write(bytes(packet))
-    
-    def pkt_sendrecv(self, packet, **kwargs):
-        self.flush(False)
-        self.pkt_write(packet, **kwargs)
-        return self.pkt_read(**kwargs)
 
 
 class LoopBack(PacketTransfer):
     """ Used for debugging Packet interfaces"""
 
-    def __init__(self, timeout = 1, pkt_class=None, addr=0x1, eol=None, **kwargs):
+    def __init__(self, timeout = 1, header: Packet = None, addr=0x1, eol=None, **kwargs):
 
         self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
         self.timeout = timeout
@@ -166,8 +138,8 @@ class LoopBack(PacketTransfer):
         self.rx_buffer = b''
         self.tx_buffer = b''
 
-        if (pkt_class != None):
-            super(LoopBack, self).__init__(pkt_class, addr=addr, **kwargs)
+        if (header != None):
+            super(LoopBack, self).__init__(header, addr=addr, **kwargs)
         
     def flush(self, reset_tx=True):
         self.rx_buffer = b''
@@ -189,13 +161,15 @@ class LoopBack(PacketTransfer):
             return ret
 
         else:
-            raise RuntimeError('Loopback interface timed out attempting to read {} bytes. Recieved: {}'.format(self.timeout, nbytes, self.rx_buffer))
+            raise RuntimeError(
+                f"Loopback interface timed out attempting to read {nbytes} bytes. Received: {self.rx_buffer}"
+            )
 
 
 class SerialInterface(PacketTransfer):
 	OPEN_PORTS = {}
 
-	def __init__(self, port, baudrate=115200, timeout=1, pkt_class=None, addr=0x1, eol=None):
+	def __init__(self, port, baudrate=115200, timeout=1, header: Packet = None, addr=0x1, eol=None):
 
 		port = port.upper()
 		ser = serial.Serial()
@@ -212,8 +186,8 @@ class SerialInterface(PacketTransfer):
 		self.open()
 		self.flush()
 
-		if (pkt_class != None):
-			super(SerialInterface, self).__init__(pkt_class, addr=addr)
+		if (header != None):
+			super(SerialInterface, self).__init__(header, addr=addr)
 		
 	def flush(self, reset_tx=True):
 		self.ser.read(self.ser.in_waiting)
@@ -273,7 +247,7 @@ class SerialInterface(PacketTransfer):
 class SocketInterface(PacketTransfer):
     open_ports = {}
 
-    def __init__(self, target=None, host=None, timeout=2, pkt_class=None, eol=None):
+    def __init__(self, target=None, host=None, timeout=2, header: Packet = None, eol=None):
         """
         Open a server or client socket that supports reading/writing structures. 
 
@@ -299,12 +273,12 @@ class SocketInterface(PacketTransfer):
         self.timeout = timeout
         self._rxbuffer = b''
 
-        if (pkt_class != None):
-            super(SocketInterface, self).__init__(pkt_class, addr=0x1)
-
         self.socket = None
         self._connected = False
         self._host_skt = None
+
+        if (header != None):
+            super(SocketInterface, self).__init__(header, addr=0x1)
         
     def flush(self, *args, **kwargs):
         self._rxbuffer = b''
@@ -359,6 +333,8 @@ class SocketInterface(PacketTransfer):
         return self._connected
 
     def connect(self):
+        
+        self.flush()
         
         # close existing connections
         if self.is_connected():
@@ -432,7 +408,7 @@ class PacketServer(threading.Thread):
     def __init__(
         self, 
         host: tuple, 
-        pkt_class: Packet,
+        header: Packet,
         pkt_handler: Callable[[Packet], Packet] = None, 
         timeout: float = 2
     ):
@@ -442,7 +418,7 @@ class PacketServer(threading.Thread):
 
         super().__init__()
         self.terminate_flag = threading.Event()
-        self.interface = SocketInterface(host=host, pkt_class=pkt_class, timeout=timeout)
+        self.interface = SocketInterface(host=host, header=header, timeout=timeout)
         self.pkt_handler = pkt_handler
         self._thread_completed = False
 
