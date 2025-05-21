@@ -1,8 +1,8 @@
 # np-struct
 
-`np-struct` extends structured arrays in NumPy to be a bit more user friendly and intuitive, with added support for transferring structured arrays across serial or socket interfaces. 
+`np-struct` is a user friendly interface to NumPy structured arrays, with added support for transferring arrays across interfaces.
  
-Structured arrays are built to mirror the struct typedef in C/C++, but can be used for any complicated data structure. They behave similar to standard arrays, but support mixed data types, labeling, and unequal length arrays. Arrays are easily written or loaded from disk in the standard `.npy` binary format.
+The `Struct` type is designed to mirror the struct typedef in C, but can be used for any complicated data structure. They behave similar to the standard `ndarray`, but support mixed data types, bitfields, labeling, and variable length arrays. Arrays are easily written or loaded from disk in the standard `.npy` binary format.
 
 ## Installation
 
@@ -20,7 +20,7 @@ import numpy as np
 
 ### Structures
 
-Create a c-style structure with Numpy types.
+Create a C-style structure with Numpy types.
 
 ```python
 class example(Struct):
@@ -37,23 +37,20 @@ ex[0].data2 = 1 + 2j
 >>> ex
 Struct example: (3,)
 [
-    psize:  uint16[0]
     data1:  uint32[0]
     data2:  complex128[1.+2.j 1.+2.j 1.+2.j]
 ]
 ...
 [
-    psize:  uint16[0]
     data1:  uint32[0]
     data2:  complex128[0.+0.j 0.+0.j 0.+0.j]
 ]
 ```
 
-Members can also be initialized by passing in their name to the constructor with an inital value. 
+Members can also be initialized by passing in their name to the constructor with an initial value. 
 ```python
 >>> example(data2 = np.zeros(shape=(3,2)))
 Struct example: 
-    psize:  uint16[0]
     data1:  uint32[0]
     data2:  complex128[[0.+0.j 0.+0.j]
 	       [0.+0.j 0.+0.j]
@@ -61,34 +58,47 @@ Struct example:
 ```
 
 The structure inherits from np.ndarray and supports all math functions that a normal structured array does.
-To cast as a standard numpy array:
+To cast as a standard numpy structured array,
 
 ```python
->>>  ex2.view(np.ndarray)
-array([([0], [0], [[0.+0.j, 0.+0.j], [0.+0.j, 0.+0.j], [0.+0.j, 0.+0.j]])],
-      dtype=[('psize', '<u2', (1,)), ('data1', '<u4', (1,)), ('data2', '<c16', (3, 2))])
+>>>  ex.view(np.ndarray)
+array([([0], [0.+0.j, 0.+0.j, 0.+0.j]), ([0], [0.+0.j, 0.+0.j, 0.+0.j]),
+       ([0], [0.+0.j, 0.+0.j, 0.+0.j])],
+      dtype=[('data1', '<u4', (1,)), ('data2', '<c16', (3,))])
 ```
 
-Nested structures are also supported:
+Nested structures are also supported,
 ```python
 class nested(Struct):
     field1 = example()
     field2 = example()
 
 n = nested()
-n.field1.data2 += j*np.pi
+n.field1.data2 += 1j*np.pi
 ```
 ```bash
 >>> n
 Struct nested: 
     field1:  Struct example: 
-              psize:  uint16[0]
               data1:  uint32[0]
               data2:  complex128[0.+3.14159265j 0.+3.14159265j 0.+3.14159265j]
     field2:  Struct example: 
-              psize:  uint16[0]
               data1:  uint32[0]
               data2:  complex128[0.+0.j 0.+0.j 0.+0.j]
+```
+
+To save to disk,
+```python
+n = nested(shape=2)
+n[1].field2.data1 = 3
+np.save("test.npy", n)
+n_disk = nested(np.load("test.npy"))
+```
+```python
+>>> n_disk.field2.data1
+array([[[0]],
+
+       [[3]]], dtype=uint32)
 ```
 
 ### Labeled Arrays
@@ -98,10 +108,9 @@ Struct nested:
 written to disk in the standard `.npy` binary format, and supports indexing with coordinates. 
 
 Math operations that change the coordinates or array shape (i.e. sum or transpose) silently revert the labeled array 
-to a standard numpy array without coordinates.
+to a standard numpy array without coordinates. `np-struct` leaves it up to the user to re-cast the array as an
+`ldarray` with the appropriate coordinates.
 
-Real or complex-valued arrays can be saved with the ``ldarray.save()`` method, and
-loaded with the ``ldarray.load()`` class function.
 
 ```python
 >>> from np_struct import ldarray
@@ -147,8 +156,9 @@ Coordinates: (2,)
   a: ['data1' 'data2']
 ```
 
-Arrays can be written to disk uses the normal numpy methods if the coordinates are not needed, or, to keep the coords,
-use `ldarray.save()` and `load()`. Array is stored as a structured array in the usual `.npy` binary format.
+Real or complex-valued arrays can be written to disk uses the normal numpy methods if the coordinates are not needed, 
+or, to keep the coords, use `ldarray.save()` and `load()`. Array is stored as a structured array in the usual 
+`.npy` binary format.
 ```python
 ld.save("ld_file.npy")
 ldarray.load("ld_file.npy")
@@ -156,7 +166,7 @@ ldarray.load("ld_file.npy")
 
 ## Examples
 
-[Transfering structures over an interface](./examples/structures.ipynb)  
+[Struct example](./examples/structures.ipynb)  
 
 
 ## License
