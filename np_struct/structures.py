@@ -205,7 +205,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
             if len(idx) > 1:
                 build += tabs + '[\n'
             for k, v in self._cls_defs.items():
-                item = getattr(self[*tuple(item_i)], k)
+                item = getattr(self[tuple(item_i)], k)
 
                 key_tab = ' '*(self._printwidth-len(str(k))-1)
 
