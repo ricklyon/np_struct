@@ -1,3 +1,4 @@
 -e .
 pytest
 parameterized
+python-dateutil
