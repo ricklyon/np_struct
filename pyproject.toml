@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "np-struct"
-version = "0.0.3"
+version = "0.0.4"
 description = "Interface for NumPy structured arrays"
 readme = "README.md"
 authors = [{ name = "Rick Lyon", email = "rlyon14@gmail.com" }]
@@ -21,7 +21,7 @@ dependencies = [
 requires-python = ">=3.7"
 
 [project.optional-dependencies]
-dev = ["black", "flake8", "pytest"]
+dev = ["black", "flake8", "pytest", "python-dateutil", "parameterized"]
 
 [tool.setuptools.packages.find]
 include = ["np_struct"]
