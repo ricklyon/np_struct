@@ -1,5 +1,6 @@
 import numpy as np
 import datetime as dt
+import itertools
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
@@ -261,8 +262,8 @@ class ldarray(np.ndarray):
       
     Indexing tolerance can be set on a per-dimension basis, 
 
-    >>> coords = Coords(a=[1.2, 2.4, 3.1], b=[4,5], idx_precision=dict(a=1e-2))
-    >>> ld2 = ldarray([[10, 11],[12, 13],[14, 15]], coords=coords, dtype=np.float64)
+    >>> coords = dict(a=[1.2, 2.4, 3.1], b=[4,5])
+    >>> ld2 = ldarray([[10, 11],[12, 13],[14, 15]], coords=coords, dtype=np.float64, idx_precision=dict(a=1e-2))
 
     >>> # this will raise an error because the selection is further than 1e-2 away from any coordinate value
     >>> ld2[dict(a=1.21)]
@@ -621,7 +622,7 @@ class ldarray(np.ndarray):
 
     def save(self, filepath: str):
         """
-        Saves to disk in numpy structured array format (.npy).
+        Save to disk in numpy structured array format (.npy).
         """
 
         if self.coords is None:
@@ -650,7 +651,7 @@ class ldarray(np.ndarray):
     @classmethod
     def load(cls, filepath: str):
         """
-        Loads a ldarray from disk. (.npy)
+        Load a ldarray from disk. (.npy)
         """
         # load structured array
         structure = np.load(filepath)
@@ -667,5 +668,44 @@ class ldarray(np.ndarray):
         
         # return data array
         return ldarray(data, coords=coords)
+    
+    def transpose(self, order):
+        """
+        Transpose axis by dimension name.
+        """
+
+        if self.coords is None:
+            return super().transpose(order)
+        
+
+        order = list(order)
+        dims = list(self.coords.keys())
+
+        # list of dims skipped with ellipsis
+        skipped_dims = [d for d in dims if d not in order]
+
+        if Ellipsis in order:
+            # index of ellipsis
+            idx = order.index(Ellipsis)
+            # add missing dimensions to the order in place of the ellipsis
+            for i, d in enumerate(skipped_dims):
+                order.insert(idx + i, d)
+
+            # remove ellipsis
+            order = [d for d in order if d != Ellipsis]
+
+        # convert dimension name list to axis
+        order_idx = [dims.index(d) for d in order]
+
+        # reorder coords
+        coords = Coords(
+            **{d: dcopy(self.coords[d]) for d in order}, 
+            idx_precision=self.coords.idx_precision,
+            idx_handlers=self.coords.idx_handlers
+        )
+
+        return ldarray(super().transpose(order_idx), coords=coords)
+
+            
             
 
