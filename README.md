@@ -103,9 +103,8 @@ array([[[0]],
 
 ### Labeled Arrays
 
-`np-struct` implements a very scaled down version of [Xarray](https://docs.xarray.dev/en/stable/) DataArrays. 
-`ldarray` behaves exactly the same as standard numpy arrays (no need to use .values to avoid errors), can be
-written to disk in the standard `.npy` binary format, and supports indexing with coordinates. 
+`np-struct` implements a scaled down version of [Xarray](https://docs.xarray.dev/en/stable/) DataArrays. 
+`ldarray` supports indexing with coordinates, and can be written to disk in the standard `.npy` binary format, 
 
 Math operations that change the coordinates or array shape (i.e. sum or transpose) silently revert the labeled array 
 to a standard numpy array without coordinates. `np-struct` leaves it up to the user to re-cast the array as an
@@ -167,6 +166,7 @@ ldarray.load("ld_file.npy")
 ## Examples
 
 [Struct example](./examples/structures.ipynb)  
+[Labeled Array example](./examples/ldarray.ipynb)  
 
 
 ## License

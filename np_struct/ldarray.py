@@ -623,6 +623,11 @@ class ldarray(np.ndarray):
     def save(self, filepath: str):
         """
         Save to disk in numpy structured array format (.npy).
+
+        Parameters
+        ----------
+        filepath : str | Path
+            filepath of .npy file
         """
 
         if self.coords is None:
@@ -649,12 +654,21 @@ class ldarray(np.ndarray):
         np.save(filepath, structure)
 
     @classmethod
-    def load(cls, filepath: str):
+    def load(cls, filepath: str, **kwargs):
         """
         Load a ldarray from disk. (.npy)
+
+        Parameters
+        ----------
+        filepath : str | Path
+            filepath of .npy file
+        
+        **kwargs
+            kwargs passed to np.load(). allow_pickle must be set to True if array contains object types,
+            or if datetime objects are used as coordinates.
         """
-        # load structured array
-        structure = np.load(filepath)
+        # load structured array, allow pickled objects to support numpy arrays with object types
+        structure = np.load(filepath, **kwargs)
 
         if structure.dtype.names is not None and "coords" not in structure.dtype.names:
             return np.array(structure)
@@ -669,7 +683,7 @@ class ldarray(np.ndarray):
         # return data array
         return ldarray(data, coords=coords)
     
-    def transpose(self, order):
+    def transpose(self, order: tuple):
         """
         Transpose axis by dimension name.
         """
@@ -677,7 +691,6 @@ class ldarray(np.ndarray):
         if self.coords is None:
             return super().transpose(order)
         
-
         order = list(order)
         dims = list(self.coords.keys())
 
