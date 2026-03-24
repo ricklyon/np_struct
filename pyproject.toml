@@ -28,22 +28,3 @@ include = ["np_struct"]
 
 [project.urls]
 repository = "https://github.com/ricklyon/np_struct"
-
-[tool.bumpversion]
-current_version = "0.0.4"
-parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
-serialize = ["{major}.{minor}.{patch}"]
-commit = true
-tag = true
-
-[tool.bumpversion.parts.major]
-first_value = 0
-
-[tool.bumpversion.parts.minor]
-first_value = 0
-
-[tool.bumpversion.parts.patch]
-first_value = 0
-
-[[tool.bumpversion.files]]
-filename = "pyproject.toml"
