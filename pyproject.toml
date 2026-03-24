@@ -21,10 +21,19 @@ dependencies = [
 requires-python = ">=3.7"
 
 [project.optional-dependencies]
-dev = ["black", "flake8", "pytest", "python-dateutil", "parameterized"]
+dev = ["black", "flake8", "pytest", "python-dateutil", "parameterized", "bumpversion"]
 
 [tool.setuptools.packages.find]
 include = ["np_struct"]
 
 [project.urls]
 repository = "https://github.com/ricklyon/np_struct"
+
+[bumpversion]
+current_version = "0.0.4"
+commit = True
+tag = True
+
+[bumpversion:file:pyproject.toml]
+search = version = "{current_version}"
+replace = version = "{new_version}"
