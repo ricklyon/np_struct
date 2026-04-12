@@ -17,7 +17,7 @@ def check_shapes(a: tuple, b: tuple):
     return all([a[i] == b[i] for i in range(len(a))])
 
 
-def datetime_idx_handler(v, coords: np.ndarray):
+def datetime_idx_handler(v: datetime.datetime, coords: np.ndarray):
     """
     Index handler for datetime coords
     """
@@ -38,6 +38,27 @@ def datetime_idx_handler(v, coords: np.ndarray):
 
     # get index of the minimum distance to the indexing timestamp
     return np.argmin(np.abs(coords_ts - v_ts))
+
+
+def float_idx_handler(v: float, coords: np.ndarray, precision: float):
+    """
+    Convert float type coord to standard index
+    """
+    # subtract start value from label values
+    label_diff = np.abs(v - coords)
+
+    # get minimum value and index from difference array
+    lmin = np.min(label_diff)
+    lmin_arg = np.argmin(label_diff)
+
+    # raise Type error if no label exists within given precision
+    if lmin > precision:
+        raise IndexError(
+            "Coordinate {} is outside precision given for dimension key ({}).".format(v, precision)
+        )
+    
+    # set slice value to index of minimum value if within precision
+    return lmin_arg
 
 
 class Coords(OrderedDict):
@@ -164,8 +185,8 @@ class Coords(OrderedDict):
 
         else:
             # add to lookup table
-            self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v)}
-            super().__setitem__(k, v)
+            self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v_1d)}
+            super().__setitem__(k, v_1d)
 
 
     def get_axis_idx(self, key):
@@ -433,7 +454,7 @@ class ldarray(np.ndarray):
                 else:
                     # reduce the label array for the current axis to match the indexed numpy array.
                     # idx has a value for every dimension so we can use i to get the correct index key
-                    ncoords[k] = np.array(v)[idx[i]]
+                    ncoords[k] = np.array(v)[idx[i]].squeeze()
 
             # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
             if not check_shapes(obj.shape, ncoords.shape):
@@ -514,14 +535,14 @@ class ldarray(np.ndarray):
         return str(self)
     
 
-    def _coord2idx(self, dct_idx):
+    def _coord2idx(self, dct_idx: dict):
         """ 
         Converts dictionary indices to standard numpy indices.
         """
 
         # Start with list of slices that index the full range of each dimension. The slices will be updated with the
         # bounds given in the dictionary index
-        np_index = [slice(None,None) for i in range(len(self.shape))]
+        np_index = [slice(None, None) for i in range(len(self.shape))]
         dim_keys = list(self.coords.keys())
         
         for k, v in dct_idx.items():
@@ -536,88 +557,59 @@ class ldarray(np.ndarray):
             # get values of the dimension labels. This is a 1D numpy array where each value is unique
             coords_k = self.coords[k]
 
-            is_idx_slice = isinstance(v, slice)
-            is_idx_list = isinstance(v, (list, tuple, np.ndarray))
+            # get coordinate to index function for the coordinate type
+            handler_kwargs = dict()
+            if k in self.coords.idx_label_lut.keys():
+                handler = lambda x, *args, **kwargs: self.coords.idx_label_lut[k][x]
 
-            # allow single value coordinates as lists or tuples
-            if is_idx_list and len(v) > 1:
-                raise IndexError("Only single item lists are supported as indices.")
-
-            # cast v as a slice if not already, this allows us to use v.start and v.stop below. Both v.start and 
-            # v.stop will be the same when a single value is cast to a slice.
-            if is_idx_list:
-                v = slice(v[0], v[0], None)
-            elif not is_idx_slice:
-                v = slice(v, v, None)
-            
             # check if this dimension has a custom handler defined
-            if k in self.coords.idx_handlers.keys():
+            elif k in self.coords.idx_handlers.keys():
                 # get handler from dictionary
                 handler = self.coords.idx_handlers[k]
 
-                # call handler for each start, stop and step value
-                slc_list = [handler(vv, coords_k) if vv is not None else None for vv in [v.start, v.stop]]
-
-                # populate numpy index with slice of standard indices
-                np_index[np_i] = slice(slc_list[0], slc_list[1] + 1, v.step)
-
-            # The dimensional key will be in the idx_precision dictionary if the labels are floats.
-            # Use approximate indexing based on index precision given in the lddim class.
             elif k in self.coords.idx_precision.keys():
-                # get dimension precision
-                precision = self.coords.idx_precision[k]
+                handler = float_idx_handler
+                handler_kwargs["precision"] = self.coords.idx_precision[k]
 
-                # initialize slice values to None
-                s_start, s_stop, s_step = None, None, v.step
-                # temporary array to store start and stop indices
-                s_temp = []
-                # for both start and stop labels, find nearest index if it exists with the given precision
-                for v_s in [v.start, v.stop]:
-                    # skip if the label is None
-                    if v_s == None:
-                        s_temp.append(None)
-                        continue
-                    # subtract start value from label values
-                    label_diff = np.abs(v_s - coords_k)
-
-                    # get minimum value and index from difference array
-                    lmin = np.min(label_diff)
-                    lmin_arg = np.argmin(label_diff)
-
-                    # raise Type error if no label exists within given precision
-                    if lmin > precision:
-                        raise IndexError(
-                            "Coordinate {} is outside precision given for dimension key {}.".format(v.start, k)
-                        )
-                    # set slice value to index of minimum value if within precision
-                    s_temp.append(lmin_arg)
-                
-                # unpack temporary array
-                s_start, s_stop = s_temp
-                s_stop = s_stop+1 if s_stop is not None else s_stop
-                # populate numpy index with slice of standard indices
-                np_index[np_i] = slice(s_start, s_stop, s_step)
-
-
-            # label index is exact (integer or string) so we use the lookup table
             else:
-                # get lookup table for current dimension
-                label_lut = self.coords.idx_label_lut[k]
+                raise ValueError(f"Coordinate type not recognized for dimension {k}")
 
-                # convert labels to standard indices and build slice. Slice step is not modified, a step of 2 will 
-                # still index every other value.
-                s_start = label_lut[v.start] if v.start != None else None
-                s_stop = label_lut[v.stop] +1 if v.stop != None else None
-                s_step = v.step
+            # convert coordinate to standard index
+            if isinstance(v, (list, tuple, np.ndarray)):
+                # get standard indices for each value in list
+                np_index[np_i] = [handler(vv, coords_k, **handler_kwargs) for vv in v]
+                    
+            elif isinstance(v, slice):
+                # call handler for each start, stop and step value
+                s_start, s_stop = [handler(vv, coords_k, **handler_kwargs) if vv is not None else None for vv in [v.start, v.stop]]
+                s_stop = s_stop + 1 if s_stop is not None else s_stop
 
                 # populate numpy index with slice of standard indices
-                np_index[np_i] = slice(s_start, s_stop, s_step)
+                np_index[np_i] = slice(s_start, s_stop, v.step)
+            else:
+                # if indexed with single value
+                np_index[np_i] = int(handler(v, coords_k, **handler_kwargs))
 
-            # if indexed with single values, convert the index from a slice to a integer
-            if not is_idx_slice and not is_idx_list:
-                np_index[np_i] = int(np_index[np_i].start)
+        # if more than one index is a list or array, numpy does pair-wise indexing. Otherwise, we can return the 
+        # indices as is.
+        if np.count_nonzero([isinstance(idx, list) for idx in np_index]) <= 1:
+            return tuple(np_index)
+        
+        # create pairwise indices. 
+        for i, idx in enumerate(np_index):
+            # convert slice indices to a range of indices
+            if isinstance(np_index[i], slice):
 
-        return tuple(np_index)
+                start = 0 if idx.step is None else idx.start
+                stop = self.shape[i] if idx.stop is None else idx.stop + 1
+                step = 1 if idx.step is None else idx.step
+
+                np_index[i] = np.arange(start, stop + 1, step)
+
+            else:
+                np_index[i] = np.atleast_1d(idx)
+
+        return np.ix_(*np_index)
 
 
     def save(self, filepath: str):
