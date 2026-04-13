@@ -306,7 +306,12 @@ class ldarray(np.ndarray):
 
         # cast input data to ldarray type
         else:             
-            obj = np.asarray(data).astype(dtype).view(cls)
+            obj = np.asarray(data)
+            
+            if dtype is not None:
+                obj = obj.astype(dtype)
+                
+            obj = obj.view(cls)
 
             # If dim is not compatible with the data shape return a standard numpy array
             if (coords is None) or (not check_shapes(obj.shape, coords.shape)):
