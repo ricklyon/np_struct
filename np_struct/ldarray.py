@@ -1,6 +1,6 @@
 import numpy as np
 import datetime as dt
-import itertools
+from scipy import interpolate, ndimage
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
@@ -306,7 +306,7 @@ class ldarray(np.ndarray):
 
         # cast input data to ldarray type
         else:             
-            obj = np.asarray(data).view(cls)
+            obj = np.asarray(data).astype(dtype).view(cls)
 
             # If dim is not compatible with the data shape return a standard numpy array
             if (coords is None) or (not check_shapes(obj.shape, coords.shape)):
@@ -609,8 +609,52 @@ class ldarray(np.ndarray):
             else:
                 np_index[i] = np.atleast_1d(idx)
 
+        # return a meshgrid of index values, the resulting array when this index is used will have the same
+        # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
+        # the shapes are compatible. 
         return np.ix_(*np_index)
 
+    def _interp_idx(self, dct_idx: dict):
+        """ 
+        Converts dictionary indices to interpolated indices.
+        """
+
+        # Start with list of slices that index the full range of each dimension. 
+        interp_index = [np.arange(0, self.shape[i]) for i in range(len(self.shape))]
+        dim_keys = list(self.coords.keys())
+        
+        for k, v in dct_idx.items():
+            # Return a type error if the dictionary has a key that is not tracked in the dimensional dictionary.
+            if k not in dim_keys:
+                raise TypeError('Invalid index key: {}'.format(k))
+            
+            v = np.atleast_1d(v)
+
+            # get the index of the current dimension key in the array shape. 
+            np_i = dim_keys.index(k)
+            # get values of the dimension labels. This is a 1D numpy array where each value is unique
+            coords_k = self.coords[k]
+
+            # check if this dimension has a custom handler defined
+            if k in self.coords.idx_handlers.keys():
+                # get handler from dictionary
+                handler = self.coords.idx_handlers[k]
+                interp_index[np_i] = [handler(vv, coords_k) for vv in v]
+
+            # can't interpolate string coordinates, use nearest value
+            elif isinstance(v[0], str):
+                interp_index[np_i] = [self.coords.idx_label_lut[k][vv] for vv in v]
+
+            # get the floating point "index" by interpolation for each coordinate value.
+            else:
+                coord_interp = interpolate.CubicSpline(coords_k, np.arange(0, self.shape[np_i]))
+                interp_index[np_i] = coord_interp(v)
+
+        # return a meshgrid of index values, the resulting array when this index is used will have the same
+        # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
+        # the shapes are compatible. 
+        return np.ix_(*interp_index)
+    
 
     def save(self, filepath: str):
         """
@@ -644,6 +688,93 @@ class ldarray(np.ndarray):
 
         # save to file
         np.save(filepath, structure)
+
+    def interpolate(
+        self, 
+        order: int = 3,
+        output: np.ndarray = None,
+        mode: str = "constant",
+        cval: float = 0,
+        prefilter: bool = True,
+        dtype: np.dtype = None,
+        **coords, 
+    ) -> ldarray:
+        """
+        Interpolate data at the given coordinates. String value coordinates are not interpolated and must 
+        be included in the data coordinates. See scipy.ndimage.map_coordinates().
+
+        Parameters
+        ----------
+        output : array_like, optional
+            The array in which to place the output. By default an array of the same dtype as input will be created.
+        order : int, default: 3
+            The order of the spline interpolation, default is 3. The order has to be in the range 0-5.
+        mode : {"reflect", "grid-mirror", "constant", "grid-constant", "nearest", "mirror", "grid-wrap", "wrap"}
+            The mode parameter determines how the input array is extended beyond its boundaries. Default is "constant".
+        cval : float, default: 0.0
+            Value to fill past edges of input if mode is "constant". Default is 0.0.
+        prefilter : bool, default: False
+            Determines if the input array is prefiltered with spline_filter before interpolation. 
+            The default is False.
+        dtype : np.dtype, optional
+            The dtype of the returned array. By default, the dtype is the same as the input array, which may lead to 
+            unexpected results if interpolating an integer array. 
+        **coords
+            coordinate values to interpolate at
+
+        Examples
+        --------
+
+        >>> from np_struct import ldarray
+        >>> import numpy as np
+        >>> np.set_printoptions(suppress=True)
+
+        >>> coords = dict(a=[1, 2], b=['data1', 'data2', 'data3'])
+        >>> ld = ldarray([[10, 8, 6], [0, 2, 4]], coords=coords)
+        >>> ld
+        ldarray([[10.,  8.,  6.],
+                [ 0.,  2.,  4.]])
+        Coordinates: (2, 3)
+        a: [1 2]
+        b: ['data1' 'data2' 'data3']
+
+        >>> ld.interpolate(a = [1.5, 2], dtype=np.float64)
+        ldarray([[ 5.,  5.,  5.],
+                [-0.,  2.,  4.]])
+        Coordinates: (2, 3)
+        a: [1.5 2. ]
+        b: ['data1' 'data2' 'data3']
+
+        Returns
+        -------
+        ldarray
+
+        """
+
+        # get an array of indices for each dimension. Indices may be floating point, in between integer indices. 
+        # Each array will be the same number of dimensions but not equal shapes.
+        interp_idx = self._interp_idx(coords)
+        # shape of the data after interpolation
+        result_shape = [m.shape[i] for i, m in enumerate(interp_idx)]
+        # map_coordinates doesn't broadcast the indices like numpy does for advanced indexing. Broadcast 
+        # index array to the same shape for each dimension.
+        map_idx = [np.broadcast_to(m, result_shape) for m in interp_idx]
+
+        if dtype is None:
+            dtype = self.dtype
+
+        data = ndimage.map_coordinates(
+            self.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
+        )
+
+        # update coordinates to new interpolated ones
+        data_coords = dcopy(self.coords)
+        for k, v in coords.items():
+            data_coords[k] = v
+
+        return ldarray(
+            data, coords=data_coords
+        )
 
     @classmethod
     def load(cls, filepath: str, **kwargs):
