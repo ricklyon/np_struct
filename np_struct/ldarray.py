@@ -698,7 +698,7 @@ class ldarray(np.ndarray):
         prefilter: bool = True,
         dtype: np.dtype = None,
         **coords, 
-    ) -> ldarray:
+    ):
         """
         Interpolate data at the given coordinates. String value coordinates are not interpolated and must 
         be included in the data coordinates. See scipy.ndimage.map_coordinates().
