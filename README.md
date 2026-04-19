@@ -180,7 +180,7 @@ plt.plot(ld_int.real, ld_int.imag)
 plt.plot(ld[0].real, ld[0].imag, marker=".", linestyle="")
 plt.gca().set_aspect("equal")
 ```
-![example1](https://raw.githubusercontent.com/ricklyon/np_struct/main/docs/img/interpolation_ex.png)
+![example1](https://raw.githubusercontent.com/ricklyon/np_struct/master/docs/img/interpolation_ex.png)
 
 
 Real or complex-valued arrays can be written to disk using the normal numpy methods if the coordinates are not needed. 
