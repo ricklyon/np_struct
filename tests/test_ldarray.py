@@ -94,6 +94,61 @@ class TestLdArray(unittest.TestCase):
 
         npt.assert_array_equal(ld[dict(a=1.201)], [10, 11])
 
+    def test_interpolation_real(self):
+        
+        # avoid interpolating at the endpoints, it's close to the right value but hard to test exactly
+        t = np.linspace(0, 2 * np.pi, 21)
+        t_int = np.linspace(0.5, 5.5, 61)
+
+        data = np.array([np.sin(t), np.cos(t)])
+
+        ld = ldarray(data, coords = dict(a=["sin", "cos"], t=t))
+
+        ld_int = ld.interpolate(t=t_int)
+
+        # interpolate each separately to make sure the result doesn't change
+        ld_int_sin = ld.interpolate(t=t_int, a="sin")
+        ld_int_cos = ld.interpolate(t=t_int, a="cos")
+
+        # import matplotlib.pyplot as plt
+        # plt.plot(t_int, ld_int.T)
+        # plt.plot(t, ld.T, marker=".", linestyle="")
+
+        # plt.plot(t_int, ld_int_sin.T)
+        # plt.plot(t, ld[0].T, marker=".", linestyle="")
+        # plt.plot(t_int, ld_int_cos.T)
+        # plt.plot(t, ld[1].T, marker=".", linestyle="")
+
+        np.testing.assert_array_almost_equal(ld_int.sel(a="sin"), np.sin(t_int), decimal=2)
+        np.testing.assert_array_almost_equal(ld_int.sel(a="cos"), np.cos(t_int), decimal=2)
+        np.testing.assert_array_almost_equal(ld_int_sin.squeeze(), np.sin(t_int), decimal=2)
+        np.testing.assert_array_almost_equal(ld_int_cos.squeeze(), np.cos(t_int), decimal=2)
+
+    def test_interpolation_complex(self):
+        
+        # avoid interpolating at the endpoints, it's close to the right value but hard to test exactly
+        t = np.linspace(0, 2 * np.pi, 21)
+        t_int = np.linspace(0.5, 5.5, 61)
+
+        data = np.array([np.exp(1j * t), np.exp(0.5 * 1j * t)])
+
+        ld = ldarray(data, coords = dict(a=["exp(t)", "exp(0.5t)"], t=t))
+
+        ld_int = ld.interpolate(t=t_int)
+
+        # import matplotlib.pyplot as plt
+        # plt.plot(ld_int[0].real, ld_int[0].imag)
+        # plt.plot(ld[0].real, ld[0].imag, marker=".", linestyle="")
+        # plt.gca().set_aspect("equal")
+
+        # plt.plot(ld_int[1].real, ld_int[1].imag)
+        # plt.plot(ld[1].real, ld[1].imag, marker=".", linestyle="")
+
+        np.testing.assert_array_almost_equal(ld_int.sel(a="exp(t)"), np.exp(1j * t_int), decimal=2)
+        np.testing.assert_array_almost_equal(ld_int.sel(a="exp(0.5t)"), np.exp(0.5 * 1j * t_int), decimal=2)
+
+
+
     def test_save(self):
         
         coords = dict(a=['data1', 'data2'], b=np.arange(0, 20, 0.2))
