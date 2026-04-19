@@ -127,7 +127,7 @@ Coordinates: (2, 100)
   b: [ 0.   0.2 ... 19.6 19.8]
 ```
 
-Coordinate indexing can be done with the `.sel` method or using a dictionary in the indexing brackets `[...]`. 
+Coordinate indexing can be done with the `.sel` method or by using a dictionary in the indexing brackets `[...]`. 
 Indexing with slices is inclusive on the endpoint:
 ```python
 >>> ld.sel(b=slice(15, 16), a="data1")
@@ -146,7 +146,7 @@ Coordinates: (2, 2)
   b: [ 0.2 19.6]
 ```
 
-If using a dictionary to index, the keys must match the dimension names:
+To use a dictionary to index,
 ```python
 >>> ld[dict(b = 19.8)] = 77
 >>> ld
