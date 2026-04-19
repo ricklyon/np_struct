@@ -16,7 +16,7 @@ classifiers = [
 ]
 keywords = ["numpy", "structured array", "struct"]
 dependencies = [
-    "numpy",
+    "numpy", "scipy"
 ]
 requires-python = ">=3.7"
 
