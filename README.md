@@ -103,30 +103,19 @@ array([[[0]],
 
 ### Labeled Arrays
 
-`np-struct` implements a scaled down version of [Xarray](https://docs.xarray.dev/en/stable/) DataArrays. 
-`ldarray` supports indexing with coordinates, and can be written to disk in the standard `.npy` binary format, 
+`ldarray` supports indexing with coordinates, interpolation, and can be written to disk in the standard `.npy`
+binary format, 
 
 Math operations that change the coordinates or array shape (i.e. sum or transpose) silently revert the labeled array 
 to a standard numpy array without coordinates. `np-struct` leaves it up to the user to re-cast the array as an
 `ldarray` with the appropriate coordinates.
 
 
+
 ```python
 >>> from np_struct import ldarray
+>>> import numpy as np
 
->>> coords = dict(a=[1,2], b=['data1', 'data2', 'data3'])
->>> ld = ldarray([[10, 11, 12],[13, 14, 15]], coords=coords, dtype=np.float64)
->>> ld
-ldarray([[10, 11, 12],
-         [13, 14, 15]])
-Coordinates: (2, 3)
-    a: [1 2]
-    b: ['data1' 'data2' 'data3']
-```
-
-Arrays can be set or indexed with slices,
-
-```python
 >>> coords = dict(a=['data1', 'data2'], b=np.arange(0, 20, 0.2))
 >>> data = np.arange(200).reshape(2, 100)
 >>> ld = ldarray(data, coords=coords)
@@ -138,7 +127,8 @@ Coordinates: (2, 100)
   b: [ 0.   0.2 ... 19.6 19.8]
 ```
 
-Coordinate indexing with slices is inclusive on the endpoint:
+Coordinate indexing can be done with the `.sel` method or using a dictionary in the indexing brackets `[...]`. 
+Indexing with slices is inclusive on the endpoint:
 ```python
 >>> ld.sel(b=slice(15, 16), a="data1")
 ldarray([75, 76, 77, 78, 79, 80])
@@ -146,17 +136,41 @@ Coordinates: (6,)
   b: [15.  15.2 ... 15.8 16. ]
 ```
 
-Setting arrays with coordinates work similar to xarray, where dictionaries can be used as indices
+Values can be indexed with lists or arrays:
 ```python
->>>  ld[dict(b = 0.2)] = 77
->>>  ld.sel(b = 0.2)
-ldarray([77, 77])
-Coordinates: (2,)
+>>> ld.sel(b = [0.2, 19.6])
+ldarray([[  1,  98],
+         [101, 198]])
+Coordinates: (2, 2)
   a: ['data1' 'data2']
+  b: [ 0.2 19.6]
 ```
 
-Real or complex-valued arrays can be written to disk uses the normal numpy methods if the coordinates are not needed, 
-or, to keep the coords, use `ldarray.save()` and `load()`. Array is stored as a structured array in the usual 
+If using a dictionary to index, the keys must match the dimension names:
+```python
+>>> ld[dict(b = 19.8)] = 77
+>>> ld
+ldarray([[  0,   1, 2, ... 98,  77],
+         [100, 101, 102, ... 198, 77]])
+Coordinates: (2, 100)
+  a: ['data1' 'data2']
+  b: [ 0.   0.2  0.4  ... 19.6 19.8]
+```
+
+Arrays can be interpolated with the `.interpolate()` method. This works the same as the `.sel()` method
+but allows coordinates to be outside the indexing tolerance.
+
+```python
+>>> ld.interpolate(a = "data1", b = [0.1, 0.3], dtype=np.float64, order=1)
+ldarray([[0.5, 1.5]])
+Coordinates: (1, 2)
+  a: ['data1']
+  b: [0.1 0.3]
+```
+
+
+Real or complex-valued arrays can be written to disk using the normal numpy methods if the coordinates are not needed. 
+To keep the coords, use `ldarray.save()` and `load()`. Array is stored as a structured array in the usual 
 `.npy` binary format.
 ```python
 ld.save("ld_file.npy")
