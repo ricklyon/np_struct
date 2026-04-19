@@ -161,12 +161,26 @@ Arrays can be interpolated with the `.interpolate()` method. This works the same
 but allows coordinates to be outside the indexing tolerance.
 
 ```python
->>> ld.interpolate(a = "data1", b = [0.1, 0.3], dtype=np.float64, order=1)
-ldarray([[0.5, 1.5]])
-Coordinates: (1, 2)
-  a: ['data1']
-  b: [0.1 0.3]
+>>> ang = np.linspace(0, 2 * np.pi, 21)
+>>> ang_int = np.linspace(0, 2 * np.pi, 61)
+
+>>> ld = ldarray(
+... np.array([np.exp(1j * t), np.exp(0.5 * 1j * t)]), 
+... coords = dict(a=["exp(t)", "exp(0.5t)"], ang=ang)
+)
+
+# the interpolation by default is order=3, but reduces to linear near the endpoints.
+# the dtype is not required if the output is the same dtype as the input, which is true in this case
+# but is shown for completeness. 
+>>> ld_int = ld.interpolate(ang=ang_int, a="exp(t)", dtype=np.complex128).squeeze()
+
+# plot interpolation results
+import matplotlib.pyplot as plt
+plt.plot(ld_int.real, ld_int.imag)
+plt.plot(ld[0].real, ld[0].imag, marker=".", linestyle="")
+plt.gca().set_aspect("equal")
 ```
+![example1](https://raw.githubusercontent.com/ricklyon/np_struct/main/docs/img/interpolation_ex.png)
 
 
 Real or complex-valued arrays can be written to disk using the normal numpy methods if the coordinates are not needed. 
