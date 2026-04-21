@@ -565,7 +565,11 @@ class ldarray(np.ndarray):
             # get coordinate to index function for the coordinate type
             handler_kwargs = dict()
             if k in self.coords.idx_label_lut.keys():
-                handler = lambda x, *args, **kwargs: self.coords.idx_label_lut[k][x]
+                lut = self.coords.idx_label_lut[k]
+                # convert coord index to string type if the lut keys are string (allow "1" to be 
+                # selected with 1)
+                is_str_type = isinstance(list(lut.keys())[0], str)
+                handler = lambda x, *args, **kwargs: lut[str(x) if is_str_type else x]
 
             # check if this dimension has a custom handler defined
             elif k in self.coords.idx_handlers.keys():
