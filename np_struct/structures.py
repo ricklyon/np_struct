@@ -47,7 +47,8 @@ class StructMeta(type):
                     cur_bit_base = key+'_base'
                     cls_defs[cur_bit_base] = item
 
-                bit_fields[key] = (cur_bit_base, cur_bit_pos, item.bits)
+                # base field, bit position, number of bits, default initial value
+                bit_fields[key] = (cur_bit_base, cur_bit_pos, item.bits, item.item())
                 # increment the bit position
                 cur_bit_pos += item.bits
 
@@ -115,12 +116,18 @@ class Struct(np.ndarray, metaclass=StructMeta):
                 obj[key] = kwargs[key]
             else:
                 obj[key] = item 
-    
+
         return obj
+    
+    def __init__(self, *args, **kwargs):
+
+        # set initial values for each bitfield member
+        for key, (base, pos, bits, default) in self._bit_fields.items():
+            self.__setitem__(key, default)
     
     def __setitem__(self, key, value):
         if isinstance(key, str) and key in self._bit_fields.keys():
-            base, pos, bits = self._bit_fields[key]
+            base, pos, bits, default = self._bit_fields[key]
             mask = 2**(bits) - 1
             # invert the mask in order to clear the current value
             fullmask = 2**(getattr(self, base).itemsize *8) - 1
@@ -139,7 +146,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
             return super().__getitem__(key)
 
         if isinstance(key, str) and key in self._bit_fields.keys():
-            base, pos, bits = self._bit_fields[key]
+            base, pos, bits, default = self._bit_fields[key]
             mask = 2**(bits) - 1
             base_value = self[base] & (mask << pos)
             return (base_value >> pos)
@@ -220,7 +227,7 @@ class Struct(np.ndarray, metaclass=StructMeta):
                             b_item = getattr(self, f)
                             value_str = str(b_item).replace('\n', '\n\t\t'+tabs_item+key_tab)
 
-                            _, pos, bits = self._bit_fields[f]
+                            _, pos, bits, _ = self._bit_fields[f]
                             bits_str = r'({}:{})'.format(bits + pos, pos)
 
                             key_tab = ' '*(self._printwidth-len(str(f))-1)
