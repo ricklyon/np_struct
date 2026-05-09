@@ -130,9 +130,8 @@ class PacketTransfer(object):
 class LoopBack(PacketTransfer):
     """ Used for debugging Packet interfaces"""
 
-    def __init__(self, timeout = 1, header: Packet = None, addr=0x1, eol=None, **kwargs):
+    def __init__(self, timeout = 1, header: Packet = None, addr=0x1, **kwargs):
 
-        self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
         self.timeout = timeout
         self.addr = addr
         self.rx_buffer = b''
@@ -150,104 +149,156 @@ class LoopBack(PacketTransfer):
         self.tx_buffer = bytes_
         self.rx_buffer += bytes_
 
-    def read(self, nbytes=None):
+    def read(self, nbytes: int):
 
-        if nbytes == None:
-            nbytes = self.rx_buffer.index(self.eol)
-
-        if len(self.rx_buffer) >= nbytes:
-            ret = self.rx_buffer[:nbytes]
-            self.rx_buffer = self.rx_buffer[nbytes:]
-            return ret
-
-        else:
+        if len(self.rx_buffer) < nbytes:
             raise RuntimeError(
                 f"Loopback interface timed out attempting to read {nbytes} bytes. Received: {self.rx_buffer}"
             )
 
+        ret = self.rx_buffer[:nbytes]
+        self.rx_buffer = self.rx_buffer[nbytes:]
+        return ret
+
 
 class SerialInterface(PacketTransfer):
-	OPEN_PORTS = {}
+    OPEN_PORTS = {}
 
-	def __init__(self, port, baudrate=115200, timeout=1, header: Packet = None, addr=0x1, eol=None):
+    def __init__(
+        self, 
+        port: str, 
+        baudrate: int = 115200, 
+        timeout: float = 1, 
+        header: Packet = None, 
+        addr=0x1, 
+    ):
 
-		port = port.upper()
-		ser = serial.Serial()
-		ser.port = port
-		ser.baudrate = baudrate
-		ser.timeout = timeout
-		ser.parity= serial.PARITY_NONE
+        ser = serial.Serial()
+        ser.port = port
+        ser.baudrate = baudrate
+        ser.timeout = timeout
+        ser.parity= serial.PARITY_NONE
 
-		self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
-		self.timeout = timeout
-		self.ser = ser
-		self.port = port
-		self.addr = addr
-		self.open()
-		self.flush()
+        self.timeout = timeout
+        self.ser = ser
+        self.port = port
+        self.addr = addr
+        self.open()
+        self.flush()
 
-		if (header != None):
-			super(SerialInterface, self).__init__(header, addr=addr)
-		
-	def flush(self, reset_tx=True):
-		self.ser.read(self.ser.in_waiting)
-		if (reset_tx):
-			self.ser.reset_output_buffer()
+        if (header != None):
+            super(SerialInterface, self).__init__(header, addr=addr)
 
-	def write(self, bytes_):
-		self.ser.write(bytes_)
+    @classmethod
+    def open_by_name(
+        cls, 
+        name: str, 
+        baudrate: int = 115200, 
+        timeout: float = 1, 
+        header: Packet = None, 
+        addr=0x1
+    ) -> "SerialInterface":
+        """
+        Opens a connection to the first port found that contains the given description.
+        Not case sensitive.
+        """
+        from serial.tools import list_ports
+        device_list = list_ports.comports()
 
-	def read(self, nbytes=None):
-		## Attempts to read nbytes from the serial port. 
-		## Throws an error if a timeout occurs before nbytes can be read.
-		timeout = time.time() + self.timeout
-		if (nbytes == None):
-			ret = self.ser.read_until(self.eol)
-			if (time.time() < (timeout -.01)):
-				return ret
+        for device in device_list:
+            if name.lower() in device.description.lower():
+                return SerialInterface(device.device, baudrate, timeout, header, addr)
+            
+        raise ValueError(
+            f"No port found matching: '{name}'"
+        )
+            
+    @classmethod
+    def get_open_ports(cls):
+        return cls.OPEN_PORTS
 
-		else:
-			while(time.time() < timeout):
-				if (self.ser.in_waiting >= nbytes):
-					return self.ser.read(nbytes)
-		
-		atport = self.ser.read(self.ser.in_waiting)
-		self.flush()
-		raise RuntimeError('Serial interface timed out ({:.2f}s) attempting to read {} bytes. Recieved: {}'.format(self.timeout, nbytes, atport))
+    def flush(self, reset_tx=True):
+        self.ser.read_all()
+        if (reset_tx):
+            self.ser.reset_output_buffer()
 
-	@classmethod
-	def get_open_ports(cls):
-		return cls.OPEN_PORTS
+    def write(self, data: bytes):
+        self.ser.write(data)
 
-	def is_open(self):
-		return self.ser.is_open
+    def read(self, size: int) -> bytes:
+        """
+        Reads N bytes from the serial port. 
+        """
+        timeout = time.time() + self.timeout
 
-	def open(self):
-		if (self.port in self.OPEN_PORTS):
-			self.OPEN_PORTS[self.port].close()
-		self.ser.open()
-		self.OPEN_PORTS[self.port] = self
-		return self
+        while(time.time() < timeout):
+            if (self.ser.in_waiting >= size):
+                return self.ser.read(size)
 
-	def close(self):
-		if (self.is_open()):
-			self.OPEN_PORTS.pop(self.port)
-			self.ser.close()
-	
-	def __del__(self):
-		self.close()
+        if (time.time() >= timeout):
+            atport = self.ser.read(self.ser.in_waiting)
+            self.flush()
 
-	def __enter__(self):
-		return self.open()
+            raise TimeoutError(
+                f"Serial interface timed out ({self.timeout:.2f}s) attempting to read {size} bytes. Received: {atport}"
+            )
+        
+    def read_until(self, expected: bytes, count: int = 1) -> bytes:
+        """
+        Read until the expected sequence of bytes appears N (default = 1) times.
+        """
+        buffer = b''
+        timeout = time.time() + self.timeout
 
-	def __exit__(self, type, value, traceback):
-		self.close()
+        found = 0
+        while (time.time() < timeout) and found < count:
+            buffer += self.ser.read_until(expected)
+            found += 1
+
+        if found < count:
+            atport = self.ser.read(self.ser.in_waiting)
+            self.flush()
+            raise TimeoutError(
+                f"Serial interface timed out ({self.timeout:.2f}s) waiting for '{expected}'. Received: {atport}"
+            )
+
+        return buffer
+
+    def read_all(self) -> bytes:
+        """
+        Immediately return all bytes in the receive buffer. Returns b'' if no data is available.
+        """
+        return self.ser.read_all()
+
+    def is_open(self):
+        return self.ser.is_open
+
+    def open(self):
+        if (self.port in self.OPEN_PORTS):
+            self.OPEN_PORTS[self.port].close()
+        self.ser.open()
+        self.OPEN_PORTS[self.port] = self
+        return self
+
+    def close(self):
+        if (self.is_open()):
+            self.OPEN_PORTS.pop(self.port)
+            self.ser.close()
+    
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self.open()
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
 
 class SocketInterface(PacketTransfer):
     open_ports = {}
 
-    def __init__(self, target=None, host=None, timeout=2, header: Packet = None, eol=None):
+    def __init__(self, target=None, host=None, timeout=2, header: Packet = None):
         """
         Open a server or client socket that supports reading/writing structures. 
 
@@ -257,8 +308,8 @@ class SocketInterface(PacketTransfer):
             socket address (ip addr, port) that client will connect to
             Provide to configure socket as a client
         host: tuple, optional
-            socket address (ip addr, port) that server will bind to, e.g. host = ('localhost', 50001)
-            Provide to configure socket as a server
+            socket address (ip addr, port) that server will bind to, e.g. host = ('localhost', 50001).
+            If provided, socket is configured as a server
         """
         if target and host:
              self._udp = True
@@ -269,7 +320,6 @@ class SocketInterface(PacketTransfer):
         self.host = host
         self._host_skt = None
 
-        self.eol = '\n'.encode('utf-8') if eol == None else eol.encode('utf-8')
         self.timeout = timeout
         self._rxbuffer = b''
 
@@ -283,51 +333,64 @@ class SocketInterface(PacketTransfer):
     def flush(self, *args, **kwargs):
         self._rxbuffer = b''
 
-    def write(self, data_bytes):
+    def write(self, data: bytes):
         if not self.is_connected():
             raise RuntimeError('Socket is not connected.')
         
         if self._udp:
-            self.socket.sendto(data_bytes, self.target)
+            self.socket.sendto(data, self.target)
         else:
-            self.socket.sendall(data_bytes)
+            self.socket.sendall(data)
+        
+    def read_until(self, expected: bytes, count: int = 1) -> bytes:
+        """
+        Read until the expected sequence of bytes appears N (default = 1) times.
+        """
+        if not self.is_connected():
+            raise RuntimeError('Socket is not connected.')
+        
+        timeout = time.time() + self.timeout
 
-    def _read_from_buffer(self, size):
-        if size == None:
-            idx = self._rxbuffer.index(self.eol)
-            rd = self._rxbuffer[:idx]
-            self._rxbuffer = self._rxbuffer[idx+1:]
-            return rd
-        else:
-            rd = self._rxbuffer[:size]
-            self._rxbuffer = self._rxbuffer[size:]
-            return rd
+        found = 0
+        while (time.time() < timeout) and found < count:
+            self._rxbuffer += self.socket.recv(4096)
+            found = self._rxbuffer.count(expected)
 
-    def _is_read_complete(self, size= None):
-        if size == None:
-            return self.eol in self._rxbuffer
-        else:
-            return len(self._rxbuffer) >= size
+        if found < count:
+            self.close()
+            raise TimeoutError(
+                f"Socket interface timed out ({self.timeout:.2f}s) waiting for '{expected}'. Received: {self._rxbuffer}"
+            )
 
-    def read(self, nbytes=None):
+        # get index of nth instance in rx buffer
+        idx = -1
+        for _ in range(count):
+            idx = self._rxbuffer.index(expected, idx + 1)
+
+        rd = self._rxbuffer[:idx + 1]
+        self._rxbuffer = self._rxbuffer[idx + 1:]
+        return rd
+
+    def read(self, size: int) -> bytes:
+        """
+        Read the specified number of bytes from the socket.
+        """
         if not self.is_connected():
             raise RuntimeError('Socket is not connected.')
 
         timeout = time.time() + self.timeout
-        try:
-            while(time.time() < timeout):
-                if (self._is_read_complete(nbytes)):
-                    return self._read_from_buffer(nbytes)
-                
-                rdbytes = self.socket.recv(4096)
-                self._rxbuffer += rdbytes
 
-        except socket.timeout:
+        while (time.time() < timeout) and (len(self._rxbuffer) < size):
+            self._rxbuffer += self.socket.recv(4096)
+
+        if (time.time() >= timeout):
             self.close()
-            raise TimeoutError('Socket Timeout. Recieved: {}'.format(self._rxbuffer))
-
-        self.close()
-        raise TimeoutError('Socket Timeout. Recieved: {}'.format(self._rxbuffer))
+            raise TimeoutError('Socket Timeout. Received: {}'.format(self._rxbuffer))
+        
+        else:
+            rd = self._rxbuffer[:size]
+            self._rxbuffer = self._rxbuffer[size:]
+            return rd
             
     def is_connected(self):
         return self._connected
