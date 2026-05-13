@@ -613,7 +613,7 @@ class ldarray(np.ndarray):
                 stop = self.shape[i] if idx.stop is None else idx.stop + 1
                 step = 1 if idx.step is None else idx.step
 
-                np_index[i] = np.arange(start, stop + 1, step)
+                np_index[i] = np.arange(start, stop, step)
 
             else:
                 np_index[i] = np.atleast_1d(idx)
