@@ -28,3 +28,13 @@ include = ["np_struct"]
 
 [project.urls]
 repository = "https://github.com/ricklyon/np_struct"
+
+[tool.bumpversion]
+current_version = "0.0.8"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
