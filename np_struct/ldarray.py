@@ -1,6 +1,7 @@
 import numpy as np
 import datetime as dt
 from scipy import interpolate, ndimage
+from scipy.interpolate import interp1d
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
@@ -656,7 +657,7 @@ class ldarray(np.ndarray):
 
             # get the floating point "index" by interpolation for each coordinate value.
             else:
-                coord_interp = interpolate.CubicSpline(coords_k, np.arange(0, self.shape[np_i]))
+                coord_interp = interp1d(coords_k, np.arange(0, self.shape[np_i]), kind="cubic", assume_sorted=False)
                 interp_index[np_i] = coord_interp(v)
 
         # return a meshgrid of index values, the resulting array when this index is used will have the same
