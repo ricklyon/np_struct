@@ -624,48 +624,6 @@ class ldarray(np.ndarray):
         # the shapes are compatible. 
         return np.ix_(*np_index)
 
-    def _interp_idx(self, dct_idx: dict):
-        """ 
-        Converts dictionary indices to interpolated indices.
-        """
-
-        # Start with list of slices that index the full range of each dimension. 
-        interp_index = [np.arange(0, self.shape[i]) for i in range(len(self.shape))]
-        dim_keys = list(self.coords.keys())
-        
-        for k, v in dct_idx.items():
-            # Return a type error if the dictionary has a key that is not tracked in the dimensional dictionary.
-            if k not in dim_keys:
-                raise TypeError('Invalid index key: {}'.format(k))
-            
-            v = np.atleast_1d(v)
-
-            # get the index of the current dimension key in the array shape. 
-            np_i = dim_keys.index(k)
-            # get values of the dimension labels. This is a 1D numpy array where each value is unique
-            coords_k = self.coords[k]
-
-            # check if this dimension has a custom handler defined
-            if k in self.coords.idx_handlers.keys():
-                # get handler from dictionary
-                handler = self.coords.idx_handlers[k]
-                interp_index[np_i] = [handler(vv, coords_k) for vv in v]
-
-            # can't interpolate string coordinates, use nearest value
-            elif isinstance(v[0], str):
-                interp_index[np_i] = [self.coords.idx_label_lut[k][vv] for vv in v]
-
-            # get the floating point "index" by interpolation for each coordinate value.
-            else:
-                coord_interp = interp1d(coords_k, np.arange(0, self.shape[np_i]), kind="cubic", assume_sorted=False)
-                interp_index[np_i] = coord_interp(v)
-
-        # return a meshgrid of index values, the resulting array when this index is used will have the same
-        # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
-        # the shapes are compatible. 
-        return np.ix_(*interp_index)
-    
-
     def save(self, filepath: str):
         """
         Save to disk in numpy structured array format (.npy).
@@ -730,7 +688,9 @@ class ldarray(np.ndarray):
             The dtype of the returned array. By default, the dtype is the same as the input array, which may lead to 
             unexpected results if interpolating an integer array. 
         **coords
-            coordinate values to interpolate at
+            coordinate values to interpolate at. Each value is typically a 1D vector of coordinate values, but
+            multi-dimensional arrays are also supported if they are provided as an ldarray. The interpolated
+            data array will inherit the ldarray coordinates. See example below.
 
         Examples
         --------
@@ -755,20 +715,111 @@ class ldarray(np.ndarray):
         a: [1.5 2. ]
         b: ['data1' 'data2' 'data3']
 
+        Interpolation coordinates can be multi-dimensional.
+
+        >>> a_int = ldarray(np.ones((2, 2)), coords=dict(x=[0, 1], y=[0, 1]))
+        >>> ld.interpolate(a = a_int)
+        ldarray([[[10, 10],
+                [10, 10]],
+
+                [[ 8,  8],
+                [ 8,  8]],
+
+                [[ 6,  6],
+                [ 6,  6]]])
+        Coordinates: (3, 2, 2)
+        b: ['data1' 'data2' 'data3']
+        x: [0 1]
+        y: [0 1]
+
         Returns
         -------
         ldarray
 
         """
 
-        # get an array of indices for each dimension. Indices may be floating point, in between integer indices. 
-        # Each array will be the same number of dimensions but not equal shapes.
-        interp_idx = self._interp_idx(coords)
-        # shape of the data after interpolation
-        result_shape = [m.shape[i] for i, m in enumerate(interp_idx)]
+        coords = {k: np.atleast_1d(v) for k, v in coords.items()}
+
+        # coordinate keys that are specified as meshgrids
+        mg_keys = [k for k in self.coords.keys() if k in coords.keys() and len(coords[k].shape) > 1]
+        # dimension indices for all coordinates that are single vectors and not meshgrids
+        vector_idx = [i for i, k in enumerate(self.coords.keys()) if k not in mg_keys]
+
+        # check that all meshgrid indices have the same shape
+        if len(mg_keys):
+            m0 = coords[mg_keys[0]]
+            if not all([coords[k].shape == m0.shape for k in mg_keys]):
+                raise ValueError("All meshgrid indices must be the same shape.")
+
+            # all meshgrids must be labeled with the same coordinates
+            if not all([isinstance(coords[k], ldarray) and coords[k].coords == m0.coords for k in mg_keys]):
+                raise ValueError("All meshgrid indices must labeled arrays with identical coordinates.")
+
+        # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
+        # followed by the meshgrid shape. 
+        interp_shape = tuple([self.shape[i] for i in vector_idx])
+        if len(mg_keys):
+            interp_shape += m0.shape
+
+        # Start with list of slices that index the full range of each dimension. 
+        # dimensions that are not included in coords will be left as a full vector of all indices in
+        # the dimension.
+        interp_index = [np.arange(0, self.shape[i]) for i in range(len(self.shape))]
+        dim_keys = list(self.coords.keys())
+
+        # convert coordinate values back to numpy indices. map_coordinates accepts floating point values
+        # between indices, so these will be interpolated if the coordinate type allows it.
+        for k, v in coords.items():
+            # Return a type error if the dictionary has a key that is not tracked in the dimensional dictionary.
+            if k not in dim_keys:
+                raise TypeError('Invalid index key: {}'.format(k))
+
+            # get the index of the current dimension key in the array shape. 
+            np_i = dim_keys.index(k)
+            # get values of the dimension labels. This is a 1D numpy array where each value is unique
+            coords_k = self.coords[k]
+
+            # check if this dimension has a custom handler defined
+            if k in self.coords.idx_handlers.keys():
+                # get handler from dictionary
+                handler = self.coords.idx_handlers[k]
+                interp_index[np_i] = [handler(vv, coords_k) for vv in v]
+
+            # can't interpolate string coordinates, use nearest value
+            elif isinstance(v[0], str):
+                interp_index[np_i] = [self.coords.idx_label_lut[k][vv] for vv in v]
+
+            # get the floating point "index" by interpolation for each coordinate value.
+            else:
+                coord_interp = interp1d(coords_k, np.arange(0, self.shape[np_i]), assume_sorted=False, kind="linear")
+                interp_index[np_i] = coord_interp(v)
+
+        # map_coordinates work similarly as numpy advanced indexing, where the index for each dimension can
+        # be an matrix. The matrices must all be the same shape, so broadcast the matrices/vectors in interp_index
+        # across each other. The number of interpolated dimensions does not need to be the same as the array dimensions.
+        interp_index_b = [None] * self.ndim
+        v_i = 0
+
+        for i in range(self.ndim):
+
+            # for vector indices, add dimensions for all the other vector dimensions, as well as the meshgrid
+            # dimensions.
+            if i in vector_idx:
+                # select current dimension in the interpolated shape by adding a ":" in the dimension list.
+                # the vector indices are stacked at the front of the interpolated shape, regardless of where
+                # they appear in the array dimensions (use v_i instead of i to select dimension)
+                idx_b = [None] * len(interp_shape)
+                idx_b[v_i] = slice(None)
+                # add extra dimensions
+                interp_index_b[i] = interp_index[i][tuple(idx_b)] 
+                v_i += 1
+            # for meshgrid indices, add extra dimensions for the vector dimensions at the beginning of the array
+            else:
+                interp_index_b[i] = interp_index[i][tuple([None] * v_i)]
+
         # map_coordinates doesn't broadcast the indices like numpy does for advanced indexing. Broadcast 
         # index array to the same shape for each dimension.
-        map_idx = [np.broadcast_to(m, result_shape) for m in interp_idx]
+        map_idx = [np.broadcast_to(m, interp_shape) for m in interp_index_b]
 
         if dtype is None:
             dtype = self.dtype
@@ -777,10 +828,15 @@ class ldarray(np.ndarray):
             self.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
         )
 
-        # update coordinates to new interpolated ones
-        data_coords = dcopy(self.coords)
-        for k, v in coords.items():
-            data_coords[k] = v
+        data_coords = {}
+        # add coordinates from vector indices
+        for i, k in enumerate(self.coords.keys()):
+            if i in vector_idx:
+                data_coords[k] = coords[k] if k in coords.keys() else self.coords[k]
+
+        # add the coordinates from the meshgrid
+        if len(mg_keys):
+            data_coords.update(m0.coords)
 
         return ldarray(
             data, coords=data_coords
