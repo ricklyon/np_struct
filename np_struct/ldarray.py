@@ -757,7 +757,10 @@ class ldarray(np.ndarray):
 
         # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
         # followed by the meshgrid shape. 
-        interp_shape = tuple([self.shape[i] for i in vector_idx])
+        dim_keys = list(self.coords.keys())
+        interp_shape = tuple(
+            [self.shape[i] if dim_keys[i] not in coords.keys() else len(coords[dim_keys[i]]) for i in vector_idx]
+        )
         if len(mg_keys):
             interp_shape += m0.shape
 
@@ -811,7 +814,7 @@ class ldarray(np.ndarray):
                 idx_b = [None] * len(interp_shape)
                 idx_b[v_i] = slice(None)
                 # add extra dimensions
-                interp_index_b[i] = interp_index[i][tuple(idx_b)] 
+                interp_index_b[i] = np.array(interp_index[i])[tuple(idx_b)] 
                 v_i += 1
             # for meshgrid indices, add extra dimensions for the vector dimensions at the beginning of the array
             else:
