@@ -148,11 +148,11 @@ class Coords(OrderedDict):
         self.idx_handlers.pop(key, None)
         super().pop(key)
     
-    def index(self, idx: tuple) -> tuple:
+    def index(self, key: str) -> tuple:
         """ 
-        Index the coordinates with standard integer indices.
+        Returns the axis (dimension) index that 'key' has in the lddarray that uses this lddim.
         """
-        return tuple([v[idx[i]] for i, (k, v) in enumerate(self.items())])
+        return list(self.keys()).index(key)
 
     def __setitem__(self, k, v):
         # adds new values to the dictionary
@@ -188,13 +188,6 @@ class Coords(OrderedDict):
             # add to lookup table
             self.idx_label_lut[k] = {vv:i for i,vv in enumerate(v_1d)}
             super().__setitem__(k, v_1d)
-
-
-    def get_axis_idx(self, key):
-        """ 
-        Returns the axis (dimension) index that 'key' has in the lddarray that uses this lddim.
-        """
-        return list(self.keys()).index(key)
 
     def __str__(self):
         # breaks out each key-value pair into it's own line for easier reading 
@@ -324,21 +317,59 @@ class ldarray(np.ndarray):
         setattr(obj, "coords", coords)
 
         return obj
+
+    @property
+    def T(self):
+        obj = super().T
+
+        if self.coords is not None:
+            # flip the coord dimensions
+            new_coords = Coords(**{k: dcopy(self.coords[k]) for k in list(self.coords.keys())[::-1]})
+            obj.coords = new_coords
+
+        return obj
+
+    
+    def __array_function__(self, func, types, args, kwargs):
+
+        # convert dimension labels in axis or axes argument to integer indices
+        for k in ["axis", "axes"]:
+            if k in kwargs.keys() and self.coords:
+                # cast single values as list as list
+                axis_d = np.atleast_1d(kwargs[k])
+                # convert str axis to integer
+                axis_v = [self.coords.index(a) if isinstance(a, str) else a for a in axis_d]
+                # replace axis kwarg value with the integer values
+                kwargs[k] = tuple(axis_v)
+
+        obj = super().__array_function__(func, types, args, kwargs)
+
+        # invalidate coords for functions capable of leaving the shape intact but permuting the axis
+        # order. transpose is subclassed.
+        if hasattr(obj, "coords") and func in [np.swapaxes, np.moveaxis, np.rollaxis]:
+            obj.coords = None
+
+        return obj
     
     def __array_finalize__(self, obj):
+
         # required method of subclasses of numpy. Sets unique member variables of new instances
         
         # if called from __new__, obj will be none. Skip this method and let __new__ handle the coordinate assignments
         if obj is None: 
             return
-        
+
         # array finalize is called when array is cast to a new type, indexed, or whenever a new array with a different
         # shape is created (i.e. transpose). By default, drop the coordinates which are most likely out of date now.
         # Coordinates will be added back by lower level functions if the shape stayed the same.
-        self.coords = None
+        if isinstance(obj, ldarray) and getattr(obj, "coords", None) and check_shapes(self.shape, obj.coords.shape):
+            self.coords = dcopy(obj.coords)
+        else:
+            self.coords = None
 
 
     def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
+
         # for some math functions, the shape will change. Drop the coordinates and revert to a standard numpy array
         # rather than support every math function like xarray does. 
 
@@ -875,17 +906,24 @@ class ldarray(np.ndarray):
         # return data array
         return ldarray(data, coords=coords)
     
-    def transpose(self, order: tuple):
+    def transpose(self, axes: tuple = None):
         """
         Transpose axis by dimension name.
         """
 
-        if self.coords is None:
-            return super().transpose(order)
-        
-        order = list(order)
-        dims = list(self.coords.keys())
+        # pass to numpy method if coords are missing
+        if self.coords is None: 
+            return super().transpose(axes)
 
+        if axes is None:
+            return self.T
+
+        # convert axes indices to dimension names
+        dims = list(self.coords.keys())
+        order = [dims[a] if not isinstance(a, (str, type(Ellipsis))) else a for a in axes]
+
+        order = list(order)
+        
         # list of dims skipped with ellipsis
         skipped_dims = [d for d in dims if d not in order]
 

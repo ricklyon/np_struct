@@ -80,7 +80,6 @@ class TestLdArray(unittest.TestCase):
 
         ld = ldarray(np.ones((12, 12)), coords=dict(a=np.arange(12), b=np.ones(12)))
 
-        self.assertTrue(ld.T.coords is None)
         self.assertTrue(ld.flatten().coords is None)
         self.assertTrue(ld.reshape(-1, 2).coords is None)
 
