@@ -5,6 +5,7 @@ from scipy.interpolate import interp1d
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
+from itertools import chain
 
 def check_shapes(a: tuple, b: tuple):
     """ 
@@ -370,6 +371,36 @@ class ldarray(np.ndarray):
 
     def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
 
+        # expand dimensions
+        inputs = list(inputs)
+        expanded = False
+
+        if all([isinstance(a, ldarray) and getattr(a, "coords", None) for a in inputs]):
+            
+            # get all dimension names
+            dims = []
+            for a in inputs:
+                [dims.append(d) for d in a.coords.keys() if d not in dims]
+
+            # get all coordinates for the resulting data
+            coords = {}
+            for k in dims:
+                for a in inputs:
+                    if k in a.coords.keys():
+                        coords[k] = a.coords[k]
+
+            a = inputs[0]
+            for i, a in enumerate(inputs):
+                if (a.coords.keys() != dims):
+                    # transpose the dimensions in the order they show up in dims
+                    a = a.transpose([d for d in dims if d in a.coords.keys()])
+                    # expand missing dimensions
+                    dim_b_list = tuple([slice(None) if d in a.coords.keys() else None for d in dims])
+                    inputs[i] = a[dim_b_list]
+
+            expanded = True
+            expanded_coords = Coords(**coords)
+
         # for some math functions, the shape will change. Drop the coordinates and revert to a standard numpy array
         # rather than support every math function like xarray does. 
 
@@ -392,10 +423,14 @@ class ldarray(np.ndarray):
 
         results = super().__array_ufunc__(ufunc, method, *args, **kwargs)
 
+        if expanded and check_shapes(results.shape, expanded_coords.shape):
+            results = ldarray(results, coords=expanded_coords)
+
         # if the shape happens to be the same during the math operation, restore the coordinates
-        if isinstance(results, np.ndarray) and self.coords and check_shapes(results.shape, self.coords.shape):
-            results = results.view(ldarray)
-            results.coords = dcopy(self.coords)
+        elif isinstance(results, np.ndarray) and self.coords and check_shapes(results.shape, self.coords.shape):
+                results = results.view(ldarray)
+                results.coords = dcopy(self.coords)
+
         else:
             results = results.view(np.ndarray)
 
