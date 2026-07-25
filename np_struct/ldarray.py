@@ -336,8 +336,8 @@ class ldarray(np.ndarray):
         # convert dimension labels in axis or axes argument to integer indices
         for k in ["axis", "axes"]:
             if k in kwargs.keys() and self.coords:
-                # cast single values as list as list
-                axis_d = np.atleast_1d(kwargs[k])
+                # cast single values as list
+                axis_d = [kwargs[k]] if not isinstance(kwargs[k], (tuple, list, np.ndarray)) else kwargs[k]
                 # convert str axis to integer
                 axis_v = [self.coords.index(a) if isinstance(a, str) else a for a in axis_d]
                 # replace axis kwarg value with the integer values
@@ -346,14 +346,14 @@ class ldarray(np.ndarray):
         obj = super().__array_function__(func, types, args, kwargs)
 
         # invalidate coords for functions capable of leaving the shape intact but permuting the axis
-        # order. transpose is subclassed.
+        # order. transpose is subclassed separately and not included here.
         if hasattr(obj, "coords") and func in [np.swapaxes, np.moveaxis, np.rollaxis]:
             obj.coords = None
 
         return obj
     
     def __array_finalize__(self, obj):
-
+        
         # required method of subclasses of numpy. Sets unique member variables of new instances
         
         # if called from __new__, obj will be none. Skip this method and let __new__ handle the coordinate assignments
@@ -371,39 +371,48 @@ class ldarray(np.ndarray):
 
     def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
 
-        # expand dimensions
+        
         inputs = list(inputs)
-        expanded = False
+        result_coords = {}
+        invalid_coords = False
 
+        # expand dimensions if all inputs are ldarrays with coords
         if all([isinstance(a, ldarray) and getattr(a, "coords", None) for a in inputs]):
             
-            # get all dimension names
+            # get all dimension names of the resulting data
             dims = []
             for a in inputs:
                 [dims.append(d) for d in a.coords.keys() if d not in dims]
 
-            # get all coordinates for the resulting data
-            coords = {}
+            # validate all coordinates of the resulting data match
+            result_coords = {}
             for k in dims:
                 for a in inputs:
-                    if k in a.coords.keys():
-                        coords[k] = a.coords[k]
+                    if k not in a.coords.keys():
+                        continue
+                    # add new coordinates from the inputs to the result coords
+                    if k not in result_coords.keys():
+                        result_coords[k] = a.coords[k]
+                    # if coords already exist, check that they match. If not, the ufunc is allowed to continue
+                    # but the coords are dropped.
+                    elif not np.all(result_coords[k] == a.coords[k]):
+                        result_coords = {}
+                        invalid_coords = True
+                        break
 
-            a = inputs[0]
-            for i, a in enumerate(inputs):
-                if (a.coords.keys() != dims):
-                    # transpose the dimensions in the order they show up in dims
-                    a = a.transpose([d for d in dims if d in a.coords.keys()])
-                    # expand missing dimensions
-                    dim_b_list = tuple([slice(None) if d in a.coords.keys() else None for d in dims])
-                    inputs[i] = a[dim_b_list]
+            # transpose each input so the dim order is the same, and expand missing dimensions
+            if len(result_coords):
+                a = inputs[0]
+                for i, a in enumerate(inputs):
+                    if (tuple(a.coords.keys()) != dims):
+                        # transpose the dimensions in the order they show up in dims
+                        a = a.transpose([d for d in dims if d in a.coords.keys()])
+                        # expand missing dimensions
+                        dim_b_list = tuple([slice(None) if d in a.coords.keys() else None for d in dims])
+                        inputs[i] = a[dim_b_list]
 
-            expanded = True
-            expanded_coords = Coords(**coords)
-
-        # for some math functions, the shape will change. Drop the coordinates and revert to a standard numpy array
-        # rather than support every math function like xarray does. 
-
+        # Drop the coordinates for input and output arrays, and revert to a standard numpy array for math functions, 
+        # this avoids overhead for ldarray indexing during math operations. 
         args = []
         for input_ in inputs:
             if isinstance(input_, ldarray):
@@ -423,19 +432,39 @@ class ldarray(np.ndarray):
 
         results = super().__array_ufunc__(ufunc, method, *args, **kwargs)
 
-        if expanded and check_shapes(results.shape, expanded_coords.shape):
-            results = ldarray(results, coords=expanded_coords)
+        if not isinstance(results, (np.ndarray, ldarray)):
+            pass
 
-        # if the shape happens to be the same during the math operation, restore the coordinates
-        elif isinstance(results, np.ndarray) and self.coords and check_shapes(results.shape, self.coords.shape):
-                results = results.view(ldarray)
-                results.coords = dcopy(self.coords)
+        elif invalid_coords:
+            results = results.view(np.ndarray)
+
+        # if the shapes of the inputs were expanded, restore the full expanded coordinates if the shape
+        # is still consistent.
+        elif len(result_coords) and check_shapes(results.shape, Coords(**result_coords).shape):
+            results = ldarray(results, coords=result_coords)
+
+        # if the shape is the same after the math operation, restore the coordinates
+        elif self.coords and check_shapes(results.shape, self.coords.shape):
+            results = results.view(ldarray)
+            results.coords = dcopy(self.coords)
 
         else:
             results = results.view(np.ndarray)
 
         return results
     
+    def __getattribute__(self, key):
+
+        try:
+            return super().__getattribute__(key)
+
+        # return coordinate values if there are no conflicting attributes
+        except AttributeError as e:
+
+            if self.coords and key in self.coords.keys():
+                return dcopy(self.coords[key])
+            else:
+                raise e
 
     def __copy__(self):
         obj = super().__copy__()

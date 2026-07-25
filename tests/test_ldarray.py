@@ -181,6 +181,17 @@ class TestLdArray(unittest.TestCase):
 
         os.remove("ld_temp_file.npy")
 
+    def test_get_coordinate(self):
+
+        b = np.arange(0, 20, 0.2)
+        coords = dict(size=['data1', 'data2'], b=b)
+        data = np.arange(200).reshape(2, 100)
+        ld = ldarray(data, coords=coords)
+
+        np.testing.assert_array_equal(ld.b, b)
+        # check that existing attributes are not affected if there is a name collision
+        self.assertEqual(ld.size, 200)
+
 
 if __name__ == '__main__':
     unittest.main()
