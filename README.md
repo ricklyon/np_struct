@@ -1,6 +1,6 @@
 # np-struct
 
-`np-struct` is a user friendly interface to NumPy structured arrays, with added support for transferring arrays across interfaces.
+`np-struct` is an interface to NumPy structured arrays, with added support for transferring arrays across interfaces.
  
 The `Struct` type is designed to mirror the struct typedef in C, but can be used for any complicated data structure. They behave similar to the standard `ndarray`, but support mixed data types, bitfields, labeling, and variable length arrays. Arrays are easily written or loaded from disk in the standard `.npy` binary format.
 

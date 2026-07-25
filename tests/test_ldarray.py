@@ -80,7 +80,6 @@ class TestLdArray(unittest.TestCase):
 
         ld = ldarray(np.ones((12, 12)), coords=dict(a=np.arange(12), b=np.ones(12)))
 
-        self.assertTrue(ld.T.coords is None)
         self.assertTrue(ld.flatten().coords is None)
         self.assertTrue(ld.reshape(-1, 2).coords is None)
 
@@ -147,6 +146,26 @@ class TestLdArray(unittest.TestCase):
         np.testing.assert_array_almost_equal(ld_int.sel(a="exp(t)"), np.exp(1j * t_int), decimal=2)
         np.testing.assert_array_almost_equal(ld_int.sel(a="exp(0.5t)"), np.exp(0.5 * 1j * t_int), decimal=2)
 
+    def test_interpolation_2d(self):
+        coords = dict(a=[1, 2], b=['data1', 'data2', 'data3'])
+        ld = ldarray([[10, 8, 6], [0, 2, 4]], coords=coords)
+
+        a_int = ldarray(np.ones((2, 2)), coords=dict(x=[0, 1], y=[0, 1]))
+        data = ld.interpolate(a = a_int)
+
+        # interpolated shape is (3, 2, 2), 3 is the "b" column that is moved to the front, ahead
+        # of the 2x2 meshgrid. Each 2x2 array is the different values of b at a=1.
+        ref = np.array([
+            [[10, 10], [10, 10]],
+            [[ 8,  8], [ 8,  8]],
+            [[ 6,  6], [ 6,  6]]]
+        )
+        np.testing.assert_array_equal(data, ref)
+
+        # check coordinates
+        np.testing.assert_array_equal(data.coords["b"], coords["b"])
+        np.testing.assert_array_equal(data.coords["x"], [0, 1])
+        np.testing.assert_array_equal(data.coords["y"], [0, 1])
 
 
     def test_save(self):
@@ -161,6 +180,17 @@ class TestLdArray(unittest.TestCase):
         np.testing.assert_array_equal(ld_load, ld)
 
         os.remove("ld_temp_file.npy")
+
+    def test_get_coordinate(self):
+
+        b = np.arange(0, 20, 0.2)
+        coords = dict(size=['data1', 'data2'], b=b)
+        data = np.arange(200).reshape(2, 100)
+        ld = ldarray(data, coords=coords)
+
+        np.testing.assert_array_equal(ld.b, b)
+        # check that existing attributes are not affected if there is a name collision
+        self.assertEqual(ld.size, 200)
 
 
 if __name__ == '__main__':
