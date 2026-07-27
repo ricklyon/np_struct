@@ -393,12 +393,21 @@ class ldarray(np.ndarray):
                     # add new coordinates from the inputs to the result coords
                     if k not in result_coords.keys():
                         result_coords[k] = a.coords[k]
-                    # if coords already exist, check that they match. If not, the ufunc is allowed to continue
-                    # but the coords are dropped.
-                    elif not np.all(result_coords[k] == a.coords[k]):
-                        result_coords = {}
-                        invalid_coords = True
-                        break
+                    # if coords already exist, check that all the coords match between the the two
+                    # input arrays, up to the indexing tolerance, if they are different, all the ufunc
+                    # to continue but drop the coords.
+                    else:
+                        if k in a.coords.idx_precision.keys():
+                            if np.max(np.abs(result_coords[k] - a.coords[k])) > a.coords.idx_precision[k]:
+                                result_coords = {}
+                                invalid_coords = True
+                                break
+                        # if coordinates are str or other type, check strict equality
+                        else:
+                            if not np.all(result_coords[k] == a.coords[k]):
+                                result_coords = {}
+                                invalid_coords = True
+                                break
 
             # transpose each input so the dim order is the same, and expand missing dimensions
             if len(result_coords):
