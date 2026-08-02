@@ -680,9 +680,11 @@ class ldarray(np.ndarray):
             s += "\nAttributes: "
 
             for k, v in tuple(self.attrs.items())[:MAX_N_ATTRS]:
+                v = str(v)
+                v = v.replace("\n", "\\n").replace("\r", "\\r")
                 v = v[:MAX_LEN_ATTRS] + "..." if len(v) > MAX_LEN_ATTRS else v
                 # remove newline characters before printing
-                s += f"\n  {k}: {v.replace("\n", "\\n").replace("\r", "\\r")}"
+                s += f"\n  {k}: {v}"
 
             if len(self.attrs) > MAX_N_ATTRS:
                 s += "\n  ... \n"
