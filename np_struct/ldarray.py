@@ -206,16 +206,16 @@ class Coords(OrderedDict):
 
 class Attrs(OrderedDict):
     """ 
-    Attribute dictionary, all values are forced to be strings
+    Attribute dictionary
 
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**{k: str(v) for k, v in kwargs.items()})
+        super().__init__(**{k: dcopy(v) for k, v in kwargs.items()})
 
 
     def __setitem__(self, k, v):
-        super().__setitem__(k, str(v))
+        super().__setitem__(k, dcopy(v))
     
 
     def __str__(self):
@@ -233,8 +233,7 @@ class Attrs(OrderedDict):
 
 class ldarray(np.ndarray):
     """ 
-    Labeled numpy array. A drastically scaled down version of xarray's DataArray. Arrays behave exactly the same as 
-    standard numpy arrays (no need to use .values), and supports indexing with coordinates.
+    Labeled numpy array. Arrays behave exactly the same as standard numpy arrays but supports indexing with coordinates.
 
     Math operations that change the coordinates or array shape (i.e. sum or transpose) silently revert the labeled array 
     to a standard numpy array without coordinates.
@@ -428,7 +427,7 @@ class ldarray(np.ndarray):
                     if k not in result_coords.keys():
                         result_coords[k] = a.coords[k]
                     # if coords already exist, check that all the coords match between the the two
-                    # input arrays, up to the indexing tolerance, if they are different, all the ufunc
+                    # input arrays, up to the indexing tolerance. If they are different, all the ufunc
                     # to continue but drop the coords.
                     else:
                         if k in a.coords.idx_precision.keys():
@@ -501,11 +500,15 @@ class ldarray(np.ndarray):
         try:
             return super().__getattribute__(key)
 
-        # return coordinate values if there are no conflicting attributes
+        # return coordinate or attribute values if there are no conflicting attributes
         except AttributeError as e:
 
-            if self.coords and key in self.coords.keys():
+            if key in ["coords", "attrs"]:
+                return None
+            elif self.coords and key in self.coords.keys():
                 return dcopy(self.coords[key])
+            elif self.attrs and key in self.attrs.keys():
+                return dcopy(self.attrs[key])
             else:
                 raise e
             
@@ -807,8 +810,9 @@ class ldarray(np.ndarray):
 
         # build attributes
         for k, v in self.attrs.items():
-            v = str(v)
-            attrs_dtype.append((k, f"<U{len(v)}", 1))
+            v = np.atleast_1d(v)
+
+            attrs_dtype.append((k, v.dtype, v.shape))
             attrs_value.append(v)
 
         value = [self, tuple(coords_value), tuple(attrs_value)]
@@ -1038,7 +1042,10 @@ class ldarray(np.ndarray):
         # build attributes
         if "attrs" in structure.dtype.names:
             attrs_s = structure["attrs"][0]
-            attrs = {k: attrs_s[k].item() for k in attrs_s.dtype.names}
+            # cast unitary arrays as single values
+            attrs = {
+                k: attrs_s[k].item() if attrs_s[k][0].shape == (1,) else attrs_s[k][0] for k in attrs_s.dtype.names
+            }
         else:
             attrs = dict()
         
