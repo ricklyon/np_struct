@@ -500,11 +500,13 @@ class ldarray(np.ndarray):
         try:
             return super().__getattribute__(key)
 
-        # return coordinate or attribute values if there are no conflicting attributes
+        # return coordinate or attribute values if there are no conflicting member variables
         except AttributeError as e:
 
-            if key in ["coords", "attrs"]:
+            if key == "coords":
                 return None
+            elif key == "attrs":
+                return dict()
             elif self.coords and key in self.coords.keys():
                 return dcopy(self.coords[key])
             elif self.attrs and key in self.attrs.keys():

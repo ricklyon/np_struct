@@ -195,6 +195,19 @@ class TestLdArray(unittest.TestCase):
         # check that existing attributes are not affected if there is a name collision
         self.assertEqual(ld.size, 200)
 
+    def test_str(self):
+
+        coords = dict(b=['col1', 'col2', 'col3'])
+        ld = ldarray([10, 11, 12], coords=coords, attrs=dict(metadata1="test"), dtype=np.float64)
+        ld.attrs["metadata2"] = [1, 2]
+
+        ref = (
+            "ldarray([10., 11., 12.])\nCoordinates: (3,)\n  b: ['col1' 'col2' 'col3']\nAttributes: \n  "
+            "metadata1: test\n  metadata2: [1, 2]\n"
+        )
+
+        self.assertEqual(str(ld), ref)
+
 
 if __name__ == '__main__':
     unittest.main()
