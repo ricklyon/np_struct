@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "np-struct"
-version = "0.1.2"
+version = "0.1.3"
 description = "Interface for NumPy structured arrays"
 readme = "README.md"
 authors = [{ name = "Rick Lyon", email = "rlyon14@gmail.com" }]
@@ -30,7 +30,7 @@ include = ["np_struct"]
 repository = "https://github.com/ricklyon/np_struct"
 
 [tool.bumpversion]
-current_version = "0.1.2"
+current_version = "0.1.3"
 commit = true
 tag = true
 
