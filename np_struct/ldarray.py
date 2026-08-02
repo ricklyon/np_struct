@@ -6,6 +6,7 @@ from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
 from itertools import chain
+from typing import TYPE_CHECKING
 
 def check_shapes(a: tuple, b: tuple):
     """ 
@@ -203,6 +204,33 @@ class Coords(OrderedDict):
 
 
 
+class Attrs(OrderedDict):
+    """ 
+    Attribute dictionary, all values are forced to be strings
+
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**{k: str(v) for k, v in kwargs.items()})
+
+
+    def __setitem__(self, k, v):
+        super().__setitem__(k, str(v))
+    
+
+    def __str__(self):
+        # breaks out each key-value pair into it's own line for easier reading 
+        s = '{\n'
+        for k,v in self.items():
+            s += k + ': ' + v.__repr__() + '\n'
+        return s+ '}'
+
+
+    def __repr__(self):
+        return self.__str__()
+
+
+
 class ldarray(np.ndarray):
     """ 
     Labeled numpy array. A drastically scaled down version of xarray's DataArray. Arrays behave exactly the same as 
@@ -289,7 +317,11 @@ class ldarray(np.ndarray):
 
 
     """
-    def __new__(cls, data=None, coords=None, dtype=None):
+    if TYPE_CHECKING:
+        coords: dict
+        attrs: dict
+
+    def __new__(cls, data=None, coords=None, attrs= dict(), dtype=None):
 
         # cast coords as a OrderedDictionary type
         if not isinstance(coords, Coords):
@@ -316,6 +348,8 @@ class ldarray(np.ndarray):
 
         # copy coords and assign as member variable
         setattr(obj, "coords", coords)
+        # add attributes as member variable
+        setattr(obj, "attrs", Attrs(**attrs))
 
         return obj
 
@@ -474,7 +508,7 @@ class ldarray(np.ndarray):
                 return dcopy(self.coords[key])
             else:
                 raise e
-
+            
     def __copy__(self):
         obj = super().__copy__()
         obj.coords = dcopy(self.coords)
@@ -614,6 +648,9 @@ class ldarray(np.ndarray):
     def __str__(self):
         
         LEN_THRESHOLD = 7
+        MAX_N_ATTRS = 7
+        MAX_LEN_ATTRS = 30
+
         s = super().__repr__()
 
         if self.coords is None:
@@ -636,9 +673,20 @@ class ldarray(np.ndarray):
                 else:
                     v_str = str(v)
 
-
             s+='\n  '+k + ': '+ v_str
-        
+
+        # append attributes if any
+        if len(getattr(self, "attrs", dict())):
+            s += "\nAttributes: "
+
+            for k, v in tuple(self.attrs.items())[:MAX_N_ATTRS]:
+                v = v[:MAX_LEN_ATTRS] + "..." if len(v) > MAX_LEN_ATTRS else v
+                # remove newline characters before printing
+                s += f"\n  {k}: {v.replace("\n", "\\n").replace("\r", "\\r")}"
+
+            if len(self.attrs) > MAX_N_ATTRS:
+                s += "\n  ... \n"
+                
         return s + '\n'
 
     def __repr__(self):
@@ -742,18 +790,27 @@ class ldarray(np.ndarray):
             return np.save(filepath, self)
         
         # initialize value and dtype of structured array
-        dim_value = []
-        dim_dtype = []
+        coords_dtype = []
+        coords_value = []
+
+        attrs_dtype = []
+        attrs_value = []
 
         # build dtype and value from dimension labels
         # dtype for a structured array is a tuple in the format (name, dtype, shape)
         for k, v in self.coords.items():
             v = np.atleast_1d(v)
-            dim_value.append(v)
-            dim_dtype.append((k, v.dtype, v.shape))
+            coords_value.append(v)
+            coords_dtype.append((k, v.dtype, v.shape))
 
-        value = [self, tuple(dim_value)]
-        dtype = [('data', self.dtype, self.shape), ('coords', dim_dtype, (1,))]
+        # build attributes
+        for k, v in self.attrs.items():
+            v = str(v)
+            attrs_dtype.append((k, f"<U{len(v)}", 1))
+            attrs_value.append(v)
+
+        value = [self, tuple(coords_value), tuple(attrs_value)]
+        dtype = [('data', self.dtype, self.shape), ('coords', coords_dtype, (1,)), ('attrs', attrs_dtype, (1,))]
         
         # create structured array
         structure = np.array([tuple(value)], dtype=dtype)
@@ -975,9 +1032,16 @@ class ldarray(np.ndarray):
 
         # build coords from dim structure
         coords = Coords(**{k : coords_s[k][0] for k in coords_s.dtype.names})
+
+        # build attributes
+        if "attrs" in structure.dtype.names:
+            attrs_s = structure["attrs"][0]
+            attrs = {k: attrs_s[k].item() for k in attrs_s.dtype.names}
+        else:
+            attrs = dict()
         
         # return data array
-        return ldarray(data, coords=coords)
+        return ldarray(data, coords=coords, attrs=attrs)
     
     def transpose(self, axes: tuple = None):
         """

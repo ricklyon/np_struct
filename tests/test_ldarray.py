@@ -172,13 +172,16 @@ class TestLdArray(unittest.TestCase):
         
         coords = dict(a=['data1', 'data2'], b=np.arange(0, 20, 0.2))
         data = np.arange(200).reshape(2, 100)
-        ld = ldarray(data, coords=coords)
+        attrs = dict(attr1="test1", attr2="...test2")
+        ld = ldarray(data, coords=coords, attrs=attrs)
 
         ld.save("ld_temp_file.npy")
         ld_load = ldarray.load("ld_temp_file.npy")
 
         np.testing.assert_array_equal(ld_load, ld)
 
+        # check attributes were loaded correctly
+        self.assertEqual(ld_load.attrs, attrs)
         os.remove("ld_temp_file.npy")
 
     def test_get_coordinate(self):
