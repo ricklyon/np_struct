@@ -370,13 +370,18 @@ class ldarray(np.ndarray):
         for k in ["axis", "axes"]:
             if k in kwargs.keys() and self.coords:
                 # cast single values as list
-                axis_d = [kwargs[k]] if not isinstance(kwargs[k], (tuple, list, np.ndarray)) else kwargs[k]
+                is_scalar = not isinstance(kwargs[k], (tuple, list, np.ndarray))
+                axis_d = [kwargs[k]] if is_scalar else kwargs[k]
                 # convert str axis to integer
                 axis_v = [self.coords.index(a) if isinstance(a, str) else a for a in axis_d]
                 # replace axis kwarg value with the integer values
-                kwargs[k] = tuple(axis_v)
+                kwargs[k] = axis_v[0] if is_scalar else tuple(axis_v)
 
         obj = super().__array_function__(func, types, args, kwargs)
+
+        # recast as ldarray if return type is ndarray
+        if not isinstance(obj, ldarray) and check_shapes(obj.shape, self.shape):
+            obj = ldarray(obj, coords=self.coords)
 
         # invalidate coords for functions capable of leaving the shape intact but permuting the axis
         # order. transpose is subclassed separately and not included here.
@@ -388,7 +393,6 @@ class ldarray(np.ndarray):
     def __array_finalize__(self, obj):
         
         # required method of subclasses of numpy. Sets unique member variables of new instances
-        
         # if called from __new__, obj will be none. Skip this method and let __new__ handle the coordinate assignments
         if obj is None: 
             return
@@ -404,7 +408,6 @@ class ldarray(np.ndarray):
 
     def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
 
-        
         inputs = list(inputs)
         result_coords = {}
         invalid_coords = False
@@ -427,7 +430,7 @@ class ldarray(np.ndarray):
                     if k not in result_coords.keys():
                         result_coords[k] = a.coords[k]
                     # if coords already exist, check that all the coords match between the the two
-                    # input arrays, up to the indexing tolerance. If they are different, all the ufunc
+                    # input arrays, up to the indexing tolerance. If they are different, allow the ufunc
                     # to continue but drop the coords.
                     else:
                         if k in a.coords.idx_precision.keys():

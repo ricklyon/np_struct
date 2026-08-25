@@ -208,6 +208,16 @@ class TestLdArray(unittest.TestCase):
 
         self.assertEqual(str(ld), ref)
 
+    def test_fft(self):
+
+        data = np.arange(80).reshape(8, 10)
+        data_ld = ldarray(data, coords=dict(a=np.arange(8), b=np.arange(10)))
+
+        result = np.fft.fft(data_ld, axis="b")
+
+        np.testing.assert_array_equal(data, data_ld)
+        self.assertEqual(data_ld.coords, result.coords)
+
 
 if __name__ == '__main__':
     unittest.main()
