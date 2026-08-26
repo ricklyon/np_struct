@@ -152,7 +152,7 @@ class Coords(OrderedDict):
     
     def index(self, key: str) -> tuple:
         """ 
-        Returns the axis (dimension) index that 'key' has in the lddarray that uses this lddim.
+        Returns the axis (dimension) index that 'key' has in the ldarray.
         """
         return list(self.keys()).index(key)
 
@@ -367,6 +367,7 @@ class ldarray(np.ndarray):
     def __array_function__(self, func, types, args, kwargs):
 
         # convert dimension labels in axis or axes argument to integer indices
+        axis = None
         for k in ["axis", "axes"]:
             if k in kwargs.keys() and self.coords:
                 # cast single values as list
@@ -375,13 +376,23 @@ class ldarray(np.ndarray):
                 # convert str axis to integer
                 axis_v = [self.coords.index(a) if isinstance(a, str) else a for a in axis_d]
                 # replace axis kwarg value with the integer values
-                kwargs[k] = axis_v[0] if is_scalar else tuple(axis_v)
+                axis = tuple(axis_v)
+                kwargs[k] = axis_v[0] if is_scalar else axis
 
         obj = super().__array_function__(func, types, args, kwargs)
 
         # recast as ldarray if return type is ndarray
-        if not isinstance(obj, ldarray) and check_shapes(obj.shape, self.shape):
+        if isinstance(obj, np.ndarray) and not isinstance(obj, ldarray) and check_shapes(obj.shape, self.shape):
             obj = ldarray(obj, coords=self.coords)
+
+        # remove axis from coords if it was indexed out by np.sum, np.average, etc...
+        elif isinstance(obj, np.ndarray) and axis is not None and len(obj.shape) == (len(self.shape) - len(axis)):
+            # remove keys from coords that match the axis placement
+            coords = dict(**self.coords)
+            keys = tuple(self.coords.keys())
+            [coords.pop(keys[i]) for i in axis]
+            # recast as labeled array
+            obj = ldarray(obj, coords=coords)
 
         # invalidate coords for functions capable of leaving the shape intact but permuting the axis
         # order. transpose is subclassed separately and not included here.

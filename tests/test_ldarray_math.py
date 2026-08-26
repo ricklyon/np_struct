@@ -98,6 +98,26 @@ class TestLdArrayMath(unittest.TestCase):
         np.testing.assert_array_equal(result, data1 * data2)
         self.assertTrue(isinstance(result, np.ndarray))
 
+    def test_fft(self):
+
+        data = np.arange(80).reshape(8, 10)
+        data_ld = ldarray(data, coords=dict(a=np.arange(8), b=np.arange(10)))
+
+        result = np.fft.fft(data_ld, axis="b")
+
+        np.testing.assert_array_equal(data, data_ld)
+        self.assertEqual(data_ld.coords, result.coords)
+
+    def test_average(self):
+
+        data = np.arange(80).reshape(8, 5, 2)
+        data_ld = ldarray(data, coords=dict(a=np.arange(8), b=np.arange(5), c=["m", "n"]))
+
+        result = np.average(data_ld, axis="b")
+
+        np.testing.assert_array_equal(np.average(data.view(np.ndarray), axis=1), result)
+        np.testing.assert_array_equal(data_ld.a, result.a)
+        np.testing.assert_array_equal(data_ld.c, result.c)
 
 if __name__ == '__main__':
     unittest.main()
