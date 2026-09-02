@@ -208,6 +208,20 @@ class TestLdArray(unittest.TestCase):
 
         self.assertEqual(str(ld), ref)
 
+    def test_rename(self):
+
+        coords = Coords(a=[1.2, 2.4, 3.1], b=[4,5], idx_precision=dict(a=1e-2))
+        ld = ldarray([[10, 11],[12, 13],[14, 15]], coords=coords, dtype=np.float64)
+
+        new_ld = ld.rename(a="j")
+
+        np.testing.assert_array_equal(new_ld.sel(j=2.4), [12, 13])
+
+        # check that indexing tolerance was maintained
+        with self.assertRaises(IndexError):
+            new_ld[dict(j=1.21)]
+
+        npt.assert_array_equal(new_ld[dict(j=1.201)], [10, 11])
 
 if __name__ == '__main__':
     unittest.main()

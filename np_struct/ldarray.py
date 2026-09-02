@@ -156,6 +156,34 @@ class Coords(OrderedDict):
         """
         return list(self.keys()).index(key)
 
+    def rename(self, **kwargs):
+        """
+        Returns a new object with renamed keys. Does not edit in place.
+        """
+
+        # maintain order of dimensions
+        dims = list(self.keys())
+        values = list(self.values())
+
+        idx_handlers = dcopy(self.idx_handlers)
+        idx_precision = dcopy(self.idx_precision)
+        
+        for k, v in kwargs.items():
+            # these indexing dictionaries do not need be ordered.
+            if k in self.idx_handlers.keys():
+                idx_handlers[v] = idx_handlers.pop(k)
+            if k in self.idx_precision.keys():
+                idx_precision[v] = idx_precision.pop(k)
+
+            # but the order in the main coord dictionary does matter
+            dims[dims.index(k)] = v
+
+        return Coords(
+            **{k: v for (k, v) in zip(dims, values)}, 
+            idx_handlers=idx_handlers, 
+            idx_precision=idx_precision
+        )
+
     def __setitem__(self, k, v):
         # adds new values to the dictionary
     
@@ -352,6 +380,7 @@ class ldarray(np.ndarray):
 
         return obj
 
+
     @property
     def T(self):
         obj = super().T
@@ -363,6 +392,14 @@ class ldarray(np.ndarray):
 
         return obj
 
+    def rename(self, **kwargs):
+        """
+        Returns a new object with renamed coordinate keys
+        """
+
+        obj = dcopy(self)
+        obj.coords = self.coords.rename(**kwargs)
+        return obj
     
     def __array_function__(self, func, types, args, kwargs):
 
