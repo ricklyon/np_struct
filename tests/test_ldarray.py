@@ -167,6 +167,29 @@ class TestLdArray(unittest.TestCase):
         np.testing.assert_array_equal(data.coords["x"], [0, 1])
         np.testing.assert_array_equal(data.coords["y"], [0, 1])
 
+    def test_interpolation_nan(self):
+        t = np.linspace(0, 2 * np.pi, 21)
+        t_int = np.linspace(1, 2, 61)
+
+        data = np.array([np.exp(1j * t), np.exp(0.5 * 1j * t)])
+
+        ld = ldarray(data, coords = dict(a=["exp(t)", "exp(0.5t)"], t=t))
+
+        # set end points to nan
+        ld[:, -5:] = np.nan
+
+        data = ld.interpolate(t=t_int).sel(a="exp(t)")
+        np.testing.assert_array_almost_equal(data, np.exp(1j * t_int), decimal=2)
+
+    def test_interpolation_round_single(self):
+
+        t = np.linspace(0, 2 * np.pi, 21)
+        t_int = np.linspace(0.5, 5.5, 61)
+
+        data = np.array([np.sin(t)])
+        ld = ldarray(data, coords = dict(a=0, t=t))
+
+        np.testing.assert_array_almost_equal(ld.interpolate(a=[-1e-7], t=t_int)[0], np.sin(t_int), decimal=2)
 
     def test_save(self):
         

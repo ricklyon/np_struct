@@ -883,7 +883,7 @@ class ldarray(np.ndarray):
         output: np.ndarray = None,
         mode: str = "constant",
         cval: float = 0,
-        prefilter: bool = False,
+        prefilter: bool = True,
         dtype: np.dtype = None,
         precision: int = 6,
         **coords, 
@@ -902,9 +902,8 @@ class ldarray(np.ndarray):
             The mode parameter determines how the input array is extended beyond its boundaries. Default is "constant".
         cval : float, default: 0.0
             Value to fill past edges of input if mode is "constant". Default is 0.0.
-        prefilter : bool, default: False
+        prefilter : bool, default: True
             Determines if the input array is prefiltered with spline_filter before interpolation. 
-            The default is False.
         dtype : np.dtype, optional
             The dtype of the returned array. By default, the dtype is the same as the input array, which may lead to 
             unexpected results if interpolating an integer array. 
@@ -961,6 +960,9 @@ class ldarray(np.ndarray):
 
         """
 
+        # set any nan values to 0
+        data = np.nan_to_num(self)
+        
         coords = {k: np.atleast_1d(v) for k, v in coords.items()}
 
         # coordinate keys that are specified as meshgrids
@@ -1051,7 +1053,7 @@ class ldarray(np.ndarray):
             dtype = self.dtype
 
         data = ndimage.map_coordinates(
-            self.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
+            data.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
         )
 
         data_coords = {}
