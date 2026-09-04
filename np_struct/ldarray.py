@@ -883,8 +883,9 @@ class ldarray(np.ndarray):
         output: np.ndarray = None,
         mode: str = "constant",
         cval: float = 0,
-        prefilter: bool = True,
+        prefilter: bool = False,
         dtype: np.dtype = None,
+        precision: int = 6,
         **coords, 
     ):
         """
@@ -907,6 +908,8 @@ class ldarray(np.ndarray):
         dtype : np.dtype, optional
             The dtype of the returned array. By default, the dtype is the same as the input array, which may lead to 
             unexpected results if interpolating an integer array. 
+        precision : int, optional
+            decimal precision of interpolation, default is 6 decimal places.
         **coords
             coordinate values to interpolate at. Each value is typically a 1D vector of coordinate values, but
             multi-dimensional arrays are also supported if they are provided as an ldarray. The interpolated
@@ -1015,7 +1018,7 @@ class ldarray(np.ndarray):
             # get the floating point "index" by interpolation for each coordinate value.
             else:
                 coord_interp = interp1d(coords_k, np.arange(0, self.shape[np_i]), assume_sorted=False, kind="linear")
-                interp_index[np_i] = coord_interp(v)
+                interp_index[np_i] = coord_interp(np.around(v, decimals=precision))
 
         # map_coordinates work similarly as numpy advanced indexing, where the index for each dimension can
         # be an matrix. The matrices must all be the same shape, so broadcast the matrices/vectors in interp_index
