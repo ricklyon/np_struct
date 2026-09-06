@@ -350,12 +350,19 @@ class ldarray(np.ndarray):
 
     def __new__(cls, data=None, coords=None, attrs= dict(), dtype=None):
 
+        # if coords is not provided, attempt to use coords from data
+        if coords is None and isinstance(data, ldarray):
+            coords = data.coords
+
         # cast coords as a OrderedDictionary type
-        if not isinstance(coords, Coords):
+        if coords is not None and not isinstance(coords, Coords):
             coords = Coords(**coords)
             
         # create 0 filled array if no data is given in the constructor
         if data is None:
+            if coords is None:
+                raise ValueError("Coords must be provided.")
+            
             obj = np.zeros(coords.shape, dtype=dtype).view(cls)
 
         # cast input data to ldarray type
@@ -368,8 +375,8 @@ class ldarray(np.ndarray):
             obj = obj.view(cls)
 
             # If dim is not compatible with the data shape return a standard numpy array
-            if (coords is None) or (not check_shapes(obj.shape, coords.shape)):
-                raise TypeError(
+            if (coords is not None) and (not check_shapes(obj.shape, coords.shape)):
+                raise ValueError(
                     "Coordinates of shape {} are not compatible with data of shape {}.".format(coords.shape, obj.shape)
                 )
 
