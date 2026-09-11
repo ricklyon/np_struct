@@ -1,12 +1,16 @@
 import numpy as np
 import datetime as dt
-from scipy import interpolate, ndimage
+from scipy import ndimage
 from scipy.interpolate import interp1d
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
-from itertools import chain
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from itertools import product
+import matplotlib.pyplot as plt
+
+if TYPE_CHECKING:
+    from matplotlib import axes
 
 def check_shapes(a: tuple, b: tuple):
     """ 
@@ -1160,6 +1164,137 @@ class ldarray(np.ndarray):
 
         return ldarray(super().transpose(order_idx), coords=coords)
 
-            
-            
+    def plot(
+        self,
+        ax: "axes.Axes",
+        xaxis: str,
+        xfmt: str = "real",
+        yfmt: str = "real",
+        label_fmt: dict = dict(),
+        legend: bool = True,
+        **kwargs
+    ):
+        """
+        Create line plot for labeled numpy array. 
+
+        Parameters
+        ----------
+        ax : axes.Axes
+            matplotlib axes object
+
+        xaxis : str, optional
+            dimension to plot along the x-axis, chooses the first dimension if not provided.
+
+        xfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the x-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+            The following string values are supported for the xmft or yfmt arguments:
+            - "db20" : `20 * np.log10(...)`
+            - "db10" : `10 * np.log10(...)`
+            - "abs"  : `np.abs(...)`
+            - "deg"  : `np.angle(..., deg=True)`
+            - "rad"  : `np.angle(..., deg=False)`
+            - "angle": `np.angle(..., deg=False)`
+            - "real" : `np.real(...)`
+            - "imag" : `np.imag(...)`
+
+        yfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the y-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+        label_fmt : dict, optional
+            dictionary where the keys match the coordinate keys, and values are functions that operate on a single
+            coordinate value before they are added to the legend. For example, 
+            `label_fmt = dict(x=f"x={.3f}".format)`
+
+        **kwargs
+            keys that are in coordinates are passed to .sel(). Remaining kwargs are passed to ax.plot()
+
+        """
+
+        # create axes if one is not provided
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        # plot along first dimension by default
+        if xaxis is None:
+            xaxis = list(self.coords.keys())[0]
+
+        fmt_func = {
+            "mag": np.abs,
+            "db20": lambda x: 20 * np.log10(x),
+            "db10": lambda x: 10 * np.log10(x),
+            "deg": lambda x: np.angle(x, deg=True),
+            "rad": lambda x: np.angle(x, deg=False),
+            "angle": lambda x: np.angle(x, deg=False),
+            "deg_unwrap": lambda x: np.rad2deg(np.unwrap(np.angle(x))),
+            "real": np.real,
+            "imag": np.imag,
+        }
+
+        ylabel = ""
+        # select a format function from one of the defaults if provided as a string
+        if isinstance(yfmt, str):
+            ylabel = yfmt
+            yfmt = fmt_func[yfmt]
+
+        if isinstance(xfmt, str):
+            xfmt = fmt_func[xfmt]
+
+        sel_coords = dict()
+        for k, v in self.coords.items():
+            # cast selection coords as a list to avoid dropping the dimension
+            if k in kwargs.keys():
+                sel_coords[k] = np.atleast_1d(kwargs.pop(k))
+
+            if k in label_fmt.keys():
+                continue
+
+            # create default label formatters if not provided
+            if isinstance(v[0], (float, np.floating)):
+                label_fmt[k] = (f"{k}=" + "{:.3f}").format 
+            elif isinstance(v[0], (int, np.integer)):
+                label_fmt[k] = (f"{k}=" + "{}").format 
+            # don't include key in label for string coordinates
+            else:
+                label_fmt[k] = "{}".format
+
+        # xaxis coords
+        xaxis_coords = xfmt(self.coords[xaxis])
+
+        # select data
+        data = self.sel(**sel_coords)
+
+        # coords with more than one value (other than the x-axis)
+        other_coords = {k: v for k, v in data.coords.items() if k != xaxis and len(v) > 1}
+        # coords with only one value, these will not be included in legend since they're the same for all lines
+        unitary_coords = {k: v for k, v in data.coords.items() if k != xaxis and len(v) == 1}
+        # label for title with all constant coords
+        unitary_label = ", ".join([label_fmt[k](v.item()) for k, v in unitary_coords.items()])
+
+        # all combinations of coordinates
+        combinations = list(product(*other_coords.values()))
+
+        lines = []
+
+        for comb_i in combinations:
+            # get single combination, only dimension should be x-axis
+            coords_dict = {k: comb_i[i] for (i, k) in enumerate(other_coords.keys())}
+            ln_data = data.sel(**coords_dict).squeeze()
+
+            # build legend label
+            label = ", ".join([label_fmt[k](v) for k, v in coords_dict.items()])
+            lines += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
+
+        if legend:
+            ax.legend()
+
+        ax.set_xlabel(xaxis)
+        ax.set_title(f"{unitary_label}", fontsize="medium")
+        ax.set_xmargin(0)
+        ax.set_ylabel(ylabel)
+        ax.grid(True)
+
+        return lines
 
