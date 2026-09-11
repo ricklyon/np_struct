@@ -1166,8 +1166,8 @@ class ldarray(np.ndarray):
 
     def plot(
         self,
-        ax: "axes.Axes",
-        xaxis: str,
+        xaxis: str = None,
+        ax: plt.Axes = None,
         xfmt: str = "real",
         yfmt: str = "real",
         label_fmt: dict = dict(),
@@ -1179,11 +1179,11 @@ class ldarray(np.ndarray):
 
         Parameters
         ----------
-        ax : axes.Axes
-            matplotlib axes object
-
         xaxis : str, optional
             dimension to plot along the x-axis, chooses the first dimension if not provided.
+
+        ax : plt.Axes, optional
+            matplotlib axes object
 
         xfmt : (np.ndarray) -> np.ndarray, optional
             String value that determines how to format the x-axis data before plotting. 
