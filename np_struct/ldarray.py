@@ -7,7 +7,6 @@ from copy import deepcopy as dcopy
 import datetime
 from typing import TYPE_CHECKING, Callable
 from itertools import product
-import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
     from matplotlib import axes
@@ -1167,7 +1166,7 @@ class ldarray(np.ndarray):
     def plot(
         self,
         xaxis: str = None,
-        ax: plt.Axes = None,
+        ax  = None,
         xfmt: str = "real",
         yfmt: str = "real",
         label_fmt: dict = dict(),
@@ -1215,7 +1214,8 @@ class ldarray(np.ndarray):
 
         # create axes if one is not provided
         if ax is None:
-            fig, ax = plt.subplots()
+            import matplotlib.pyplot as plt
+            ax = plt.gca()
 
         # plot along first dimension by default
         if xaxis is None:
