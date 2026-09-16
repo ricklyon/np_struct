@@ -22,6 +22,17 @@ def check_shapes(a: tuple, b: tuple):
     # check that the length of each dimension matches
     return all([a[i] == b[i] for i in range(len(a))])
 
+def check_coords(c1: dict, c2: dict, tolerance=1e-6):
+    """
+    Check that two coordinates are identical
+    """
+    assert tuple(c1.keys()) == tuple(c2.keys()), f"Coord keys are different: {c1.keys()} vs {c2.keys()}"
+
+    for k in c1.keys():
+        if np.any(np.abs(c1[k] - c2[k]) > tolerance):
+            return False
+
+    return True
 
 def datetime_idx_handler(v: datetime.datetime, coords: np.ndarray):
     """
@@ -986,9 +997,9 @@ class ldarray(np.ndarray):
             if not all([coords[k].shape == m0.shape for k in mg_keys]):
                 raise ValueError("All meshgrid indices must be the same shape.")
 
-            # all meshgrids must be labeled with the same coordinates
-            if not all([isinstance(coords[k], ldarray) and coords[k].coords == m0.coords for k in mg_keys]):
-                raise ValueError("All meshgrid indices must labeled arrays with identical coordinates.")
+            # # all meshgrids must be labeled with the same coordinates
+            # if not all([isinstance(coords[k], ldarray) and check_coords(m0, coords[k]) for k in mg_keys]):
+            #     raise ValueError("All meshgrid indices must labeled arrays with identical coordinates.")
 
         # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
         # followed by the meshgrid shape. 
@@ -1166,11 +1177,12 @@ class ldarray(np.ndarray):
     def plot(
         self,
         xaxis: str = None,
-        ax  = None,
         xfmt: str = "real",
         yfmt: str = "real",
         label_fmt: dict = dict(),
         legend: bool = True,
+        ax  = None,
+        lines = None,
         **kwargs
     ):
         """
@@ -1276,25 +1288,33 @@ class ldarray(np.ndarray):
         # all combinations of coordinates
         combinations = list(product(*other_coords.values()))
 
-        lines = []
+        lines_new = []
 
-        for comb_i in combinations:
+        for i, comb_i in enumerate(combinations):
             # get single combination, only dimension should be x-axis
             coords_dict = {k: comb_i[i] for (i, k) in enumerate(other_coords.keys())}
             ln_data = data.sel(**coords_dict).squeeze()
 
-            # build legend label
-            label = ", ".join([label_fmt[k](v) for k, v in coords_dict.items()])
-            lines += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
+            # update line data if lines were provided
+            if lines is not None:
+                lines[i].set_ydata(yfmt(ln_data))
+            # add lines to plot
+            else:
+                # build legend label
+                label = ", ".join([label_fmt[k](v) for k, v in coords_dict.items()])
+                lines_new += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
 
-        if legend:
-            ax.legend()
+        if lines is None:
+            if legend:
+                ax.legend()
+            ax.set_xlabel(xaxis)
+            ax.set_title(f"{unitary_label}", fontsize="medium")
+            ax.set_xmargin(0)
+            ax.set_ylabel(ylabel)
+            ax.grid(True)
+            return lines_new
+        else:
+            return lines
 
-        ax.set_xlabel(xaxis)
-        ax.set_title(f"{unitary_label}", fontsize="medium")
-        ax.set_xmargin(0)
-        ax.set_ylabel(ylabel)
-        ax.grid(True)
 
-        return lines
 
