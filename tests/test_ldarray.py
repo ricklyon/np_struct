@@ -6,6 +6,9 @@ import datetime as dt
 from dateutil import relativedelta as rdt    
 import os
 
+from scipy import ndimage
+import numpy as np
+
 
 class TestLdArray(unittest.TestCase):
 
@@ -190,6 +193,16 @@ class TestLdArray(unittest.TestCase):
         ld = ldarray(data, coords = dict(a=0, t=t))
 
         np.testing.assert_array_almost_equal(ld.interpolate(a=[-1e-7], t=t_int)[0], np.sin(t_int), decimal=2)
+
+    def test_interpolation_flat(self):
+        # avoid interpolating at the endpoints, it's close to the right value but hard to test exactly
+        t = np.linspace(0, 2 * np.pi, 21)
+
+        data = np.array([np.sin(t), np.cos(t)])
+        ld = ldarray(data, coords = dict(a=["sin", "cos"], t=t))
+
+        coords = dict(t = [0, 3, 6], a=["sin", "sin", "cos"])
+        ld.interpolate(**coords, flat=True)
 
     def test_save(self):
         
