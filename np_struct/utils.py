@@ -63,9 +63,9 @@ def format_label(
 
     # create default label formatters if not included in look up table
     if isinstance(value, (float, np.floating)):
-        return f"{key}= {value:.3f}"
+        return f"{key}={value:.3f}"
     elif isinstance(value, (int, np.integer)):
-        return f"{key}= {value}"
+        return f"{key}={value}"
     # don't include key in label for string coordinates
     else:
         return "{}".format(value)
