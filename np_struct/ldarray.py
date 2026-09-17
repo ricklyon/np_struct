@@ -886,6 +886,7 @@ class ldarray(np.ndarray):
         prefilter: bool = True,
         dtype: np.dtype = None,
         precision: int = 6,
+        flat: bool = False,
         **coords, 
     ):
         """
@@ -909,6 +910,9 @@ class ldarray(np.ndarray):
             unexpected results if interpolating an integer array. 
         precision : int, optional
             decimal precision of interpolation, default is 6 decimal places.
+        flat : bool, default: False
+            flattens all coords into a pairwise interpolation if True. Default is False, which creates 
+            a meshgrid interpolation across all coords.
         **coords
             coordinate values to interpolate at. Each value is typically a 1D vector of coordinate values, but
             multi-dimensional arrays are also supported if they are provided as an ldarray. The interpolated
@@ -964,11 +968,18 @@ class ldarray(np.ndarray):
         data = np.nan_to_num(self)
         
         coords = {k: np.atleast_1d(v) for k, v in coords.items()}
+        v0 = list(coords.values())[0]
 
+        if flat:
+            if not np.all([len(v) == len(v0) for v in coords.values()]):
+                raise ValueError("All pair-wise interpolation coords must be equal length.")
+            
         # coordinate keys that are specified as meshgrids
         mg_keys = [k for k in self.coords.keys() if k in coords.keys() and len(coords[k].shape) > 1]
         # dimension indices for all coordinates that are single vectors and not meshgrids
         vector_idx = [i for i, k in enumerate(self.coords.keys()) if k not in mg_keys]
+        # dimensions that do not have interp coords
+        missing_idx = [i for i, k in enumerate(self.coords.keys()) if k not in coords.keys()]
 
         # check that all meshgrid indices have the same shape
         if len(mg_keys):
@@ -979,15 +990,6 @@ class ldarray(np.ndarray):
             # all meshgrids must be labeled with the same coordinates
             if not isinstance(m0, ldarray):
                 raise ValueError("Meshgrid indices must labeled arrays with identical coordinates.")
-
-        # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
-        # followed by the meshgrid shape. 
-        dim_keys = list(self.coords.keys())
-        interp_shape = tuple(
-            [self.shape[i] if dim_keys[i] not in coords.keys() else len(coords[dim_keys[i]]) for i in vector_idx]
-        )
-        if len(mg_keys):
-            interp_shape += m0.shape
 
         # Start with list of slices that index the full range of each dimension. 
         # dimensions that are not included in coords will be left as a full vector of all indices in
@@ -1028,13 +1030,28 @@ class ldarray(np.ndarray):
         # be an matrix. The matrices must all be the same shape, so broadcast the matrices/vectors in interp_index
         # across each other. The number of interpolated dimensions does not need to be the same as the array dimensions.
         interp_index_b = [None] * self.ndim
-        v_i = 0
 
+        if flat:
+            # interpolated shape is the shape of the dimensions that are not in the interp coordinates, 
+            # plus the flat interpolated vector.
+            interp_shape = [len(v) for k, v in self.coords.items() if k not in coords.keys()] + [len(v0)]
+
+
+        else:
+            # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
+            # followed by the meshgrid shape. 
+
+            interp_shape = tuple(
+                [self.shape[i] if dim_keys[i] not in coords.keys() else len(coords[dim_keys[i]]) for i in vector_idx]
+            )
+            if len(mg_keys):
+                interp_shape += m0.shape
+
+        v_i = 0
         for i in range(self.ndim):
 
-            # for vector indices, add dimensions for all the other vector dimensions, as well as the meshgrid
-            # dimensions.
-            if i in vector_idx:
+            # for vector indices, add dimensions for all the other dimensions
+            if (flat and i in missing_idx) or (not flat and i in vector_idx):
                 # select current dimension in the interpolated shape by adding a ":" in the dimension list.
                 # the vector indices are stacked at the front of the interpolated shape, regardless of where
                 # they appear in the array dimensions (use v_i instead of i to select dimension)
@@ -1043,9 +1060,12 @@ class ldarray(np.ndarray):
                 # add extra dimensions
                 interp_index_b[i] = np.array(interp_index[i])[tuple(idx_b)] 
                 v_i += 1
-            # for meshgrid indices, add extra dimensions for the vector dimensions at the beginning of the array
+                
+            # for meshgrid indices or flattened dimensions, add extra dimensions for the vector dimensions 
+            # at the beginning of the array.
             else:
-                interp_index_b[i] = interp_index[i][tuple([None] * v_i)]
+                interp_index_b[i] = interp_index[i][tuple([None] * v_i)] if v_i else interp_index[i]
+
 
         # map_coordinates doesn't broadcast the indices like numpy does for advanced indexing. Broadcast 
         # index array to the same shape for each dimension.
@@ -1054,22 +1074,29 @@ class ldarray(np.ndarray):
         if dtype is None:
             dtype = self.dtype
 
-        data = ndimage.map_coordinates(
+        data_interp = ndimage.map_coordinates(
             data.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
         )
 
         data_coords = {}
+        attrs = dict()
         # add coordinates from vector indices
         for i, k in enumerate(self.coords.keys()):
-            if i in vector_idx:
+            if (flat and i in missing_idx) or (not flat and i in vector_idx):
                 data_coords[k] = coords[k] if k in coords.keys() else self.coords[k]
 
         # add the coordinates from the meshgrid
         if len(mg_keys):
             data_coords.update(m0.coords)
 
+        # add the coordinates for the flattened dimensions
+        if flat:
+            flat_key = ",".join(coords.keys())
+            data_coords[flat_key] = np.arange(len(v0))
+            attrs = {k: v for k, v in coords.items()}
+
         return ldarray(
-            data, coords=data_coords
+            data_interp, coords=data_coords, attrs=attrs
         )
 
 
