@@ -1091,7 +1091,7 @@ class ldarray(np.ndarray):
 
         # add the coordinates for the flattened dimensions
         if flat:
-            flat_key = ",".join(coords.keys())
+            flat_key = "".join(coords.keys())
             data_coords[flat_key] = np.arange(len(v0))
             attrs = {k: v for k, v in coords.items()}
 
