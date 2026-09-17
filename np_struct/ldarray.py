@@ -796,9 +796,12 @@ class ldarray(np.ndarray):
 
             # convert coordinate to standard index
             if isinstance(v, (list, tuple, np.ndarray)):
+                v = np.atleast_1d(v)
                 # get standard indices for each value in list
-                np_index[np_i] = [handler(vv, coords_k, **handler_kwargs) for vv in v]
-                    
+                np_index[np_i] = np.reshape([handler(vv, coords_k, **handler_kwargs) for vv in v.flatten()], v.shape)
+                if np_index[np_i].size == 1:
+                    np_index[np_i] = np_index[np_i].item()
+
             elif isinstance(v, slice):
                 # call handler for each start, stop and step value
                 s_start, s_stop = [handler(vv, coords_k, **handler_kwargs) if vv is not None else None for vv in [v.start, v.stop]]
@@ -812,27 +815,61 @@ class ldarray(np.ndarray):
 
         # if more than one index is a list or array, numpy does pair-wise indexing. Otherwise, we can return the 
         # indices as is.
-        if np.count_nonzero([isinstance(idx, list) for idx in np_index]) <= 1:
-            return tuple(np_index)
+        # shape of each index
+        is_idx_2d = [len(idx.shape) > 1 if isinstance(idx, (np.ndarray)) else 0 for idx in np_index]
+        is_idx_vector = [len(idx) > 1 if isinstance(idx, (list, tuple, np.ndarray)) else 0 for idx in np_index]
+
+        if np.any(is_idx_2d):
+            # create advanced pairwise indices. Every index is an array of the same shape.
+            idx_2d = np_index[is_idx_2d.index(1)]
+
+            result_shape = idx_2d.shape
+
+            for i, idx in enumerate(np_index):
+
+                if isinstance(np_index[i], slice):
+
+                    key = dim_keys[i]
+                    # get ldarray used to index
+                    idx_array = list(dct_idx.values())[0]
+    
+
+                    start = 0 if idx.step is None else idx.start
+                    stop = self.shape[i] if idx.stop is None else idx.stop + 1
+                    step = 1 if idx.step is None else idx.step
+
+                    idx_b = [None] * len(result_shape)
+                    # place of index in the result array
+                    result_place = list(idx_array.coords.keys()).index(key)
+                    idx_b[result_place] = slice(None)
+                    # add extra dimensions
+                    np_index[i] = np.array(np.arange(start, stop, step))[tuple(idx_b)] 
+
+            # return a meshgrid of index values, the resulting array when this index is used will have the same
+            # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
+            # the shapes are compatible. 
+            return tuple([np.broadcast_to(m, result_shape) for m in np_index])
         
-        # create pairwise indices. 
-        for i, idx in enumerate(np_index):
-            # convert slice indices to a range of indices
-            if isinstance(np_index[i], slice):
+        elif np.count_nonzero(is_idx_vector) > 1:
 
-                start = 0 if idx.step is None else idx.start
-                stop = self.shape[i] if idx.stop is None else idx.stop + 1
-                step = 1 if idx.step is None else idx.step
+            for i, idx in enumerate(np_index):
+                # convert slice indices to a range of indices
+                if isinstance(np_index[i], slice):
 
-                np_index[i] = np.arange(start, stop, step)
+                    start = 0 if idx.step is None else idx.start
+                    stop = self.shape[i] if idx.stop is None else idx.stop + 1
+                    step = 1 if idx.step is None else idx.step
 
-            else:
-                np_index[i] = np.atleast_1d(idx)
+                    np_index[i] = np.arange(start, stop, step)
 
-        # return a meshgrid of index values, the resulting array when this index is used will have the same
-        # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
-        # the shapes are compatible. 
-        return np.ix_(*np_index)
+                else:
+                    np_index[i] = np.atleast_1d(idx)
+
+            return np.ix_(*np_index)
+
+        else:
+            return tuple(np_index)
+
 
     def save(self, filepath: str):
         """
@@ -1091,7 +1128,7 @@ class ldarray(np.ndarray):
 
         # add the coordinates for the flattened dimensions
         if flat:
-            flat_key = "".join(coords.keys())
+            flat_key = ",".join(coords.keys())
             data_coords[flat_key] = np.arange(len(v0))
             attrs = {k: v for k, v in coords.items()}
 
@@ -1347,8 +1384,9 @@ class ldarray(np.ndarray):
                 lines_new += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
 
         if lines is None:
-            if legend:
+            if legend and len(combinations) < 7:
                 ax.legend()
+
             ax.set_xlabel(xaxis)
             ax.set_title(f"{unitary_label}", fontsize="medium")
             ax.set_ylabel(ylabel)
@@ -1445,8 +1483,8 @@ class ldarray(np.ndarray):
 
         data = data.squeeze().transpose((yaxis, xaxis))
 
-        im = ax.pcolormesh(xfmt(data.coords[yaxis]), yfmt(data.coords[xaxis]), zfmt(data), **kwargs)
-        ax.figure.colorbar(im, label=zlabel)
+        im = ax.pcolormesh(xfmt(data.coords[xaxis]), yfmt(data.coords[yaxis]), zfmt(data), **kwargs)
+        # ax.figure.colorbar(im, label=zlabel)
 
         ax.set_xlabel(xaxis)
         ax.set_title(f"{unitary_label}", fontsize="medium")
