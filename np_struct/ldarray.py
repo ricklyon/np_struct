@@ -1433,6 +1433,8 @@ class ldarray(np.ndarray):
         yfmt: str = "real",
         zfmt: str = "real",
         ax  = None,
+        mesh = None,
+        colorbar : dict = True,
         **kwargs
     ):
         """
@@ -1466,7 +1468,7 @@ class ldarray(np.ndarray):
 
 
         **kwargs
-            keys that are in coordinates are passed to .sel(). Remaining kwargs are passed to ax.plot()
+            keys that are in coordinates are passed to .sel(). Remaining kwargs are passed to ax.pcolormesh()
 
         """
 
@@ -1474,6 +1476,9 @@ class ldarray(np.ndarray):
         if ax is None:
             import matplotlib.pyplot as plt
             ax = plt.gca()
+
+        if colorbar is True:
+            colorbar = dict()
 
         # select a format function from one of the defaults if provided as a string
         zlabel = ""
@@ -1502,11 +1507,18 @@ class ldarray(np.ndarray):
 
         data = data.squeeze().transpose((yaxis, xaxis))
 
-        im = ax.pcolormesh(xfmt(data.coords[xaxis]), yfmt(data.coords[yaxis]), zfmt(data), **kwargs)
-        # ax.figure.colorbar(im, label=zlabel)
+        # add new colormesh object to plot
+        if mesh is None:
+            mesh = ax.pcolormesh(xfmt(data.coords[xaxis]), yfmt(data.coords[yaxis]), zfmt(data), **kwargs)
 
+            if isinstance(colorbar, dict):
+                ax.figure.colorbar(mesh, label=zlabel, **colorbar)
+        # update existing colormesh
+        else:
+            mesh.set_array(zfmt(data))
+        
         ax.set_xlabel(xaxis)
         ax.set_title(f"{unitary_label}", fontsize="medium")
         ax.set_ylabel(yaxis)
 
-        return im
+        return mesh
