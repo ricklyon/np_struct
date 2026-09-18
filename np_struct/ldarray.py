@@ -799,6 +799,7 @@ class ldarray(np.ndarray):
                 v = np.atleast_1d(v)
                 # get standard indices for each value in list
                 np_index[np_i] = np.reshape([handler(vv, coords_k, **handler_kwargs) for vv in v.flatten()], v.shape)
+                # cast single valued arrays as scalars
                 if np_index[np_i].size == 1:
                     np_index[np_i] = np_index[np_i].item()
 
@@ -816,8 +817,8 @@ class ldarray(np.ndarray):
         # if more than one index is a list or array, numpy does pair-wise indexing. Otherwise, we can return the 
         # indices as is.
         # shape of each index
-        is_idx_2d = [len(idx.shape) > 1 if isinstance(idx, (np.ndarray)) else 0 for idx in np_index]
-        is_idx_vector = [len(idx) > 1 if isinstance(idx, (list, tuple, np.ndarray)) else 0 for idx in np_index]
+        is_idx_2d = [len(idx.shape) > 1 if isinstance(idx, (np.ndarray)) else False for idx in np_index]
+        is_idx_vector = [len(idx) > 1 if isinstance(idx, (list, tuple, np.ndarray)) else False for idx in np_index]
 
         if np.any(is_idx_2d):
             # create advanced pairwise indices. Every index is an array of the same shape.
