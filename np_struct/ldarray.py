@@ -629,41 +629,48 @@ class ldarray(np.ndarray):
             # Initialize list of indices for each dimension that will be used to index the label arrays in dim. 
             # Length is the original array shape length so it matches ndim.
             idx = [slice(None,None) for i in range(len(self.shape))]
-            
-            # step through index keys and update idx with the appropriate keys.
-            # Keys are always in order of the array dimensions, but axis can be skipped with the Ellipsis operator.
-            idx_i = 0 
-            for ii, k in enumerate(nkey):
-                # jump the current index (idx_i) ahead if there is an Ellipsis.
-                if isinstance(k, type(Ellipsis)):
-                    # key after an Ellipsis indexes the dimension starting from the end of the key list
-                    idx_i = len(idx) - (len(nkey) - idx_i) 
 
-                else:
-                    # update idx with the key, if no key is given for a axis it defaults to ':'
-                    idx[idx_i] = k
+            # use coords from advanced index
+            if any([isinstance(k, ldarray) and len(k.shape) > 2 for k in nkey]):
+                idx_2d = [k for k in key if isinstance(k, ldarray) and len(k.shape) > 2][0]
+                ncoords = dcopy(idx_2d.coords)
 
-                idx_i += 1
+            else:
+                # step through index keys and update idx with the appropriate keys.
+                # Keys are always in order of the array dimensions, but axis can be skipped with the Ellipsis operator.
+                idx_i = 0 
+                for ii, k in enumerate(nkey):
+                    # jump the current index (idx_i) ahead if there is an Ellipsis.
+                    if isinstance(k, type(Ellipsis)):
+                        # key after an Ellipsis indexes the dimension starting from the end of the key list
+                        idx_i = len(idx) - (len(nkey) - idx_i) 
 
-            # use idx to index each array of dimension labels in ndim
-            for i, (k,v) in enumerate(self.coords.items()):
-                # numpy removes the dimension if indexed with a integer, so remove it from the dimension label dictionary.
-                if isinstance(idx[i], int):
-                    ncoords.pop(k)
+                    else:
+                        # update idx with the key, if no key is given for a axis it defaults to ':'
+                        idx[idx_i] = k
 
-                else:
-                    # reduce the label array for the current axis to match the indexed numpy array.
-                    # idx has a value for every dimension so we can use i to get the correct index key
-                    ncoords[k] = np.array(v)[idx[i]].squeeze()
+                    idx_i += 1
 
-            # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
+                # use idx to index each array of dimension labels in ndim
+                for i, (k,v) in enumerate(self.coords.items()):
+                    # numpy removes the dimension if indexed with a integer, so remove it from the dimension label dictionary.
+                    if isinstance(idx[i], int):
+                        ncoords.pop(k)
+
+                    else:
+                        # reduce the label array for the current axis to match the indexed numpy array.
+                        # idx has a value for every dimension so we can use i to get the correct index key
+                        ncoords[k] = np.array(v)[idx[i]].squeeze()
+
+            # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data.
+            # This commonly happens with advanced indexing (or pair-wise indexing)
             if not utils.check_shapes(obj.shape, ncoords.shape):
                 return obj.view(np.ndarray)
 
             # if dim and the obj shape match, update the dim member of the indexed obj and return
             obj.coords = ncoords
             return obj
-        
+            
         # if the coords were unable to be indexed, clear the coords and return a unlabeled numpy array.
         except Exception:
             obj.coords = None
@@ -799,9 +806,13 @@ class ldarray(np.ndarray):
                 v = np.atleast_1d(v)
                 # get standard indices for each value in list
                 np_index[np_i] = np.reshape([handler(vv, coords_k, **handler_kwargs) for vv in v.flatten()], v.shape)
-                # cast single valued arrays as scalars
+                # recast as labeled array
+                if isinstance(v, ldarray):
+                    np_index[np_i] = ldarray(np_index[np_i], v.coords)
+                # cast single valued arrays as slices, this preserves the dimension
                 if np_index[np_i].size == 1:
-                    np_index[np_i] = np_index[np_i].item()
+                    idx_v = np_index[np_i].item()
+                    np_index[np_i] = slice(idx_v, idx_v+1)
 
             elif isinstance(v, slice):
                 # call handler for each start, stop and step value
@@ -821,27 +832,32 @@ class ldarray(np.ndarray):
         is_idx_vector = [len(idx) > 1 if isinstance(idx, (list, tuple, np.ndarray)) else False for idx in np_index]
 
         if np.any(is_idx_2d):
-            # create advanced pairwise indices. Every index is an array of the same shape.
-            idx_2d = np_index[is_idx_2d.index(1)]
+            # create advanced pairwise indices (or advanced indices). Every index is an array of the same shape,
+            # or will be broadcast together so they are the same shape. The indexing arrays must be labeled
+            # and have all the dimensions present, minus the dimension it is selecting.
 
+            # get the first 2D matrix index
+            idx_2d = np_index[is_idx_2d.index(1)]
             result_shape = idx_2d.shape
+
+            # check that it is labeled
+            if not isinstance(idx_2d, ldarray):
+                raise ValueError("Matrix indices must be labeled numpy arrays with all dimensions present.")
 
             for i, idx in enumerate(np_index):
 
+                # create matrix indices for dimensions left with full slices (:)
                 if isinstance(np_index[i], slice):
 
                     key = dim_keys[i]
-                    # get ldarray used to index
-                    idx_array = list(dct_idx.values())[0]
     
-
                     start = 0 if idx.step is None else idx.start
                     stop = self.shape[i] if idx.stop is None else idx.stop + 1
                     step = 1 if idx.step is None else idx.step
 
                     idx_b = [None] * len(result_shape)
                     # place of index in the result array
-                    result_place = list(idx_array.coords.keys()).index(key)
+                    result_place = list(idx_2d.coords.keys()).index(key)
                     idx_b[result_place] = slice(None)
                     # add extra dimensions
                     np_index[i] = np.array(np.arange(start, stop, step))[tuple(idx_b)] 
@@ -850,7 +866,8 @@ class ldarray(np.ndarray):
             # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
             # the shapes are compatible. 
             return tuple([np.broadcast_to(m, result_shape) for m in np_index])
-        
+
+        # if more than one index is a vector, advanced indexing is used. Broadcast the indices together.
         elif np.count_nonzero(is_idx_vector) > 1:
 
             for i, idx in enumerate(np_index):
