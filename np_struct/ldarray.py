@@ -1147,7 +1147,7 @@ class ldarray(np.ndarray):
 
         # add the coordinates for the flattened dimensions
         if flat:
-            flat_key = ",".join(coords.keys())
+            flat_key = "".join(coords.keys())
             data_coords[flat_key] = np.arange(len(v0))
             attrs = {k: v for k, v in coords.items()}
 
@@ -1156,7 +1156,7 @@ class ldarray(np.ndarray):
         )
 
 
-    def interpolate_2d(self, **coords):
+    def interpolate_2d(self, flat: bool = False, **coords):
         """
         Interpolate data along two dimensions. Supports interpolating a flattened dimension if
         the pairwise coordinates are in the attributes. 
@@ -1169,6 +1169,7 @@ class ldarray(np.ndarray):
         Examples
         --------
         """
+
 
         interp_keys = list(coords.keys())
         interp_v1, interp_v2 = [np.atleast_1d(v) for v in coords.values()]
@@ -1190,14 +1191,22 @@ class ldarray(np.ndarray):
             data_coords_m = np.meshgrid(*[self.coords[k] for k in interp_keys], indexing="ij")
             # flatten and stack mesh so coords are Nx2
             data_coords = np.stack(data_coords_m, axis=-1).reshape((-1, 2))
+            # flatten interpolated coords in data
+            data = np.reshape(data, (len(data_coords), *data.shape[2:]))
 
         # if data coordinates are flattened into one dimensions, use the attributes to create Nx2 positions
         elif "".join(interp_keys) in self.coords.keys():
             data = self.transpose(("".join(interp_keys), ...))
             data_coords = np.stack([self.attrs[k] for k in interp_keys], axis=-1)
 
+        else:
+            raise ValueError(f"Unable to interpolate coordinates {list(self.coords.keys())}")
+
+        # set any nan values to 0
+        data = np.nan_to_num(data)
+
         # create interpolator, this does handle complex data but performs better if interpolation is done
-        # on magnitude and angle seperately.
+        # on magnitude and angle separately.
         # leave extrapolated values at nan
         abs_data = np.abs(data)
         interp_func_mag = interpolate.CloughTocher2DInterpolator(data_coords, abs_data, fill_value=np.nan)
@@ -1205,24 +1214,38 @@ class ldarray(np.ndarray):
 
         # evaluate interpolation
         # stack coordinates so shape is ..., 2
-        interp_pos = np.stack((interp_v1, interp_v2), axis=-1)
+        if flat:
+            interp_pos = np.stack((interp_v1, interp_v2), axis=-1)
+        else:
+            interp_pos_m = np.meshgrid(interp_v1, interp_v2, indexing="ij")
+            # flatten and stack mesh so coords are Nx2
+            interp_pos = np.stack(interp_pos_m, axis=-1).reshape((-1, 2))
 
         with np.errstate(all="ignore"):
             phasor = interp_func_phasor(interp_pos)
             data_interp = interp_func_mag(interp_pos) * (phasor / np.abs(phasor))
 
-        # create result coords
         if len(interp_v1.shape) > 1:
             interp_coords = interp_v1.coords
         else:
             interp_coords = coords
 
-        return ldarray(
-            data_interp,
+        # create result coords
+        if flat:
+            interp_coords = {"".join(interp_coords.keys()): np.arange(0, len(interp_v1))}
+
+        interp_data = ldarray(
+            data_interp.reshape(*[len(v) for v in interp_coords.values()], *data.shape[1:]),
             coords = dict(
-                **interp_coords, **{k: v for k, v in data.coords.items() if k not in (*interp_keys, "".join(interp_keys))}
+                **interp_coords, **{k: v for k, v in self.coords.items() if k not in (*interp_keys, "".join(interp_keys))}
             )
         )
+
+        # add flattened coordinates as attributes
+        if flat:
+            interp_data.attrs = {k: v for k, v in coords.items()}
+
+        return interp_data
     
     @classmethod
     def load(cls, filepath: str, **kwargs):
@@ -1315,6 +1338,9 @@ class ldarray(np.ndarray):
         legend: bool = True,
         ax  = None,
         lines = None,
+        ymin: float = None,
+        ymax: float = None,
+        format_axes: bool = True,
         **kwargs
     ):
         """
@@ -1362,6 +1388,7 @@ class ldarray(np.ndarray):
 
         # select a format function from one of the defaults if provided as a string
         ylabel = ""
+        yfmt_str = yfmt
         if isinstance(yfmt, str):
             ylabel = yfmt
             yfmt = utils.DATA_FMT_FUNC[yfmt]
@@ -1402,24 +1429,49 @@ class ldarray(np.ndarray):
                 label = ", ".join([utils.format_label(k, v) for k, v in coords_dict.items()])
                 lines_new += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
 
-        if lines is None:
-            if legend and len(combinations) < 7:
+        if lines is None and format_axes:
+
+            if legend and len(combinations) > 1 and len(combinations) < 7:
                 ax.legend()
 
             ax.set_xlabel(xaxis)
             ax.set_title(f"{unitary_label}", fontsize="medium")
-            ax.set_ylabel(ylabel)
             ax.grid(True)
 
-            ax.set_xlim([np.min(xaxis_coords), np.max(xaxis_coords)])
-
-            # set yaxis limits
-            if yfmt in ("db20", "db10"):
+            # set yaxis limits for dB plot
+            if yfmt_str in ("db20", "db10") and ymax is None and ymin is None:
                 # set upper limit to a multiple of 5
-                ymax = np.ceil(np.max(yfmt(data)) / 5) * 5
-                # show 50dB of range
-                ymin = ymax - 50
-                ax.set_ylim((ymin, ymax))
+                ymax = np.ceil(np.nanmax(yfmt(data)) / 5) * 5
+                # show 40dB of range
+                ymin = ymax - 40
+
+                ticks = np.arange(ymin, ymax + 5, 5)
+                ax.set_yticks(ticks)
+
+            else:
+                ymin = ax.get_ylim()[0] if ymin is None else ymin
+                ymax = ax.get_ylim()[1] if ymax is None else ymax
+
+            ax.set_ylim((ymin, ymax))
+            
+            # if polar axes, add the ylabel to the last tick marker
+            if ax.name == "polar":
+                ax.set_theta_zero_location('N') 
+                ax.set_theta_direction(-1) 
+
+                ax.set_thetalim(-np.pi, np.pi)
+                ax.set_thetagrids(range(-180, 180, 45))
+                ax.tick_params(labelsize='small')
+
+                # add label to last tick marker
+                labels = [f"{t:.0f}" for t in ax.get_yticks()]
+                labels[-1] += ("dB" if yfmt_str in ("db20", "db10") else ylabel)
+                ax.set_yticks(ax.get_yticks(), labels) 
+
+            # setup carteisian axes limits
+            else:
+                ax.set_ylabel(ylabel)
+                ax.set_xlim([np.nanmin(xaxis_coords), np.nanmax(xaxis_coords)])
 
             return lines_new
         else:
