@@ -420,7 +420,7 @@ class ldarray(np.ndarray):
 
         # recast as ldarray if return type is ndarray
         if isinstance(obj, np.ndarray) and not isinstance(obj, ldarray) and utils.check_shapes(obj.shape, self.shape):
-            obj = ldarray(obj, coords=self.coords)
+            obj = ldarray(obj, coords=self.coords, attrs=self.attrs)
 
         # remove axis from coords if it was indexed out by np.sum, np.average, etc...
         elif isinstance(obj, np.ndarray) and axis is not None and len(obj.shape) == (len(self.shape) - len(axis)):
@@ -429,7 +429,7 @@ class ldarray(np.ndarray):
             keys = tuple(self.coords.keys())
             [coords.pop(keys[i]) for i in axis]
             # recast as labeled array
-            obj = ldarray(obj, coords=coords)
+            obj = ldarray(obj, coords=coords, attrs=self.attrs)
 
         # invalidate coords for functions capable of leaving the shape intact but permuting the axis
         # order. transpose is subclassed separately and not included here.
@@ -450,6 +450,7 @@ class ldarray(np.ndarray):
         # Coordinates will be added back by lower level functions if the shape stayed the same.
         if isinstance(obj, ldarray) and getattr(obj, "coords", None) and utils.check_shapes(self.shape, obj.coords.shape):
             self.coords = dcopy(obj.coords)
+            self.attrs = dcopy(obj.attrs)
         else:
             self.coords = None
 
@@ -534,12 +535,13 @@ class ldarray(np.ndarray):
         # if the shapes of the inputs were expanded, restore the full expanded coordinates if the shape
         # is still consistent.
         elif len(result_coords) and utils.check_shapes(results.shape, Coords(**result_coords).shape):
-            results = ldarray(results, coords=result_coords)
+            results = ldarray(results, coords=result_coords, attrs=self.attrs)
 
         # if the shape is the same after the math operation, restore the coordinates
         elif self.coords and utils.check_shapes(results.shape, self.coords.shape):
             results = results.view(ldarray)
             results.coords = dcopy(self.coords)
+            results.attrs = dcopy(self.attrs)
 
         else:
             results = results.view(np.ndarray)
@@ -1185,6 +1187,10 @@ class ldarray(np.ndarray):
         if len(interp_v1.shape) > 1 and not isinstance(interp_v1, ldarray):
             raise ValueError("Interpolation coordinates must be labeled numpy arrays if greater than 1D.")
 
+        if flat:
+            if not len(interp_v1) == len(interp_v1):
+                raise ValueError("All pair-wise interpolation coords must be equal length.")
+            
         # get data coordinates for both interpolated dimensions
         if all([k in self.coords.keys() for k in interp_keys]):
             data = self.transpose((*interp_keys, ...))
@@ -1202,37 +1208,36 @@ class ldarray(np.ndarray):
         else:
             raise ValueError(f"Unable to interpolate coordinates {list(self.coords.keys())}")
 
-        # set any nan values to 0
-        data = np.nan_to_num(data)
-
         # create interpolator, this does handle complex data but performs better if interpolation is done
         # on magnitude and angle separately.
+        # set any nan values to 0
+        data = np.nan_to_num(data)
         # leave extrapolated values at nan
         abs_data = np.abs(data)
         interp_func_mag = interpolate.CloughTocher2DInterpolator(data_coords, abs_data, fill_value=np.nan)
         interp_func_phasor = interpolate.CloughTocher2DInterpolator(data_coords, data / abs_data, fill_value=np.nan)
 
-        # evaluate interpolation
         # stack coordinates so shape is ..., 2
-        if flat:
-            interp_pos = np.stack((interp_v1, interp_v2), axis=-1)
+        if len(interp_v1.shape) > 1 or flat:
+            interp_pos = np.stack((interp_v1, interp_v2), axis=-1).reshape((-1, 2))
         else:
             interp_pos_m = np.meshgrid(interp_v1, interp_v2, indexing="ij")
-            # flatten and stack mesh so coords are Nx2
             interp_pos = np.stack(interp_pos_m, axis=-1).reshape((-1, 2))
-
-        with np.errstate(all="ignore"):
-            phasor = interp_func_phasor(interp_pos)
-            data_interp = interp_func_mag(interp_pos) * (phasor / np.abs(phasor))
-
-        if len(interp_v1.shape) > 1:
-            interp_coords = interp_v1.coords
-        else:
-            interp_coords = coords
 
         # create result coords
         if flat:
-            interp_coords = {"".join(interp_coords.keys()): np.arange(0, len(interp_v1))}
+            interp_coords = {"".join(coords.keys()): np.arange(0, len(interp_v1))}
+        # interpolated coords are the same as the argument coords if a meshgrid was passed in
+        elif len(interp_v1.shape) > 1:
+            interp_coords = interp_v1.coords
+        # otherwise use the argument values as coords
+        else:
+            interp_coords = coords
+
+        # evaluate interpolation
+        with np.errstate(all="ignore"):
+            phasor = interp_func_phasor(interp_pos)
+            data_interp = interp_func_mag(interp_pos) * (phasor / np.abs(phasor))
 
         interp_data = ldarray(
             data_interp.reshape(*[len(v) for v in interp_coords.values()], *data.shape[1:]),
@@ -1362,11 +1367,14 @@ class ldarray(np.ndarray):
             - "db20" : `20 * np.log10(...)`
             - "db10" : `10 * np.log10(...)`
             - "abs"  : `np.abs(...)`
+            - "mag"  : `np.abs(...)`
             - "deg"  : `np.angle(..., deg=True)`
             - "rad"  : `np.angle(..., deg=False)`
             - "angle": `np.angle(..., deg=False)`
             - "real" : `np.real(...)`
             - "imag" : `np.imag(...)`
+            - "deg2rad" : `np.deg2rad(...)`
+            - "rad2deg" : `np.rad2deg(...)`
 
         yfmt : (np.ndarray) -> np.ndarray, optional
             String value that determines how to format the y-axis data before plotting. 
@@ -1438,20 +1446,15 @@ class ldarray(np.ndarray):
             ax.set_title(f"{unitary_label}", fontsize="medium")
             ax.grid(True)
 
-            # set yaxis limits for dB plot
-            if yfmt_str in ("db20", "db10") and ymax is None and ymin is None:
-                # set upper limit to a multiple of 5
-                ymax = np.ceil(np.nanmax(yfmt(data)) / 5) * 5
-                # show 40dB of range
-                ymin = ymax - 40
+            # set upper/lower limit to a multiple of 5 for dB plot.
+            if yfmt_str in ("db20", "db10"):
+                if ymax is None:
+                    ymax = np.ceil(np.nanmax(yfmt(data)) / 5) * 5
+                if ymin is None:
+                    ymin = np.floor(np.nanmin(yfmt(data)) / 5) * 5
 
-                ticks = np.arange(ymin, ymax + 5, 5)
-                ax.set_yticks(ticks)
-
-            else:
-                ymin = ax.get_ylim()[0] if ymin is None else ymin
-                ymax = ax.get_ylim()[1] if ymax is None else ymax
-
+            ymin = ax.get_ylim()[0] if ymin is None else ymin
+            ymax = ax.get_ylim()[1] if ymax is None else ymax
             ax.set_ylim((ymin, ymax))
             
             # if polar axes, add the ylabel to the last tick marker
@@ -1459,16 +1462,17 @@ class ldarray(np.ndarray):
                 ax.set_theta_zero_location('N') 
                 ax.set_theta_direction(-1) 
 
+                # polar always interprets the data in radians, set the plot range to be from -180° to 180°.
                 ax.set_thetalim(-np.pi, np.pi)
                 ax.set_thetagrids(range(-180, 180, 45))
                 ax.tick_params(labelsize='small')
 
                 # add label to last tick marker
                 labels = [f"{t:.0f}" for t in ax.get_yticks()]
-                labels[-1] += ("dB" if yfmt_str in ("db20", "db10") else ylabel)
+                labels[-1] += ("dB" if yfmt_str in ("db20", "db10") else ylabel[:3])
                 ax.set_yticks(ax.get_yticks(), labels) 
 
-            # setup carteisian axes limits
+            # setup cartesian axes limits
             else:
                 ax.set_ylabel(ylabel)
                 ax.set_xlim([np.nanmin(xaxis_coords), np.nanmax(xaxis_coords)])
@@ -1513,6 +1517,8 @@ class ldarray(np.ndarray):
             - "angle": `np.angle(..., deg=False)`
             - "real" : `np.real(...)`
             - "imag" : `np.imag(...)`
+            - "deg2rad" : `np.deg2rad(...)`
+            - "rad2deg" : `np.rad2deg(...)`
 
         yfmt : (np.ndarray) -> np.ndarray, optional
             String value that determines how to format the y-axis data before plotting. 
@@ -1564,7 +1570,9 @@ class ldarray(np.ndarray):
             mesh = ax.pcolormesh(xfmt(data.coords[xaxis]), yfmt(data.coords[yaxis]), zfmt(data), **kwargs)
 
             if isinstance(colorbar, dict):
-                ax.figure.colorbar(mesh, label=zlabel, **colorbar)
+                c_kwargs = dict(label=zlabel, **colorbar) if "label" not in colorbar.keys() else colorbar
+                ax.figure.colorbar(mesh, **c_kwargs)
+
         # update existing colormesh
         else:
             mesh.set_array(zfmt(data))

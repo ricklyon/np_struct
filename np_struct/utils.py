@@ -2,6 +2,7 @@ import numpy as np
 
 DATA_FMT_FUNC = {
     "mag": np.abs,
+    "abs": np.abs,
     "db20": lambda x: 20 * np.log10(np.abs(x)),
     "db10": lambda x: 10 * np.log10(np.abs(x)),
     "deg": lambda x: np.angle(x, deg=True),
@@ -10,6 +11,8 @@ DATA_FMT_FUNC = {
     "deg_unwrap": lambda x: np.rad2deg(np.unwrap(np.angle(x))),
     "real": np.real,
     "imag": np.imag,
+    "deg2rad" : np.deg2rad,
+    "rad2deg" : np.rad2deg
 }
 
 LABEL_FMT_FUNC = dict(
