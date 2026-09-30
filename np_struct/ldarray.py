@@ -1452,6 +1452,8 @@ class ldarray(np.ndarray):
                     ymax = np.ceil(np.nanmax(yfmt(data)) / 5) * 5
                 if ymin is None:
                     ymin = np.floor(np.nanmin(yfmt(data)) / 5) * 5
+                    # clip to - 40dB range
+                    ymin = np.clip(ymin, ymax - 40, None)
 
             ymin = ax.get_ylim()[0] if ymin is None else ymin
             ymax = ax.get_ylim()[1] if ymax is None else ymax
@@ -1508,7 +1510,7 @@ class ldarray(np.ndarray):
             String value that determines how to format the x-axis data before plotting. 
             An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
 
-            The following string values are supported for the xmft or yfmt arguments:
+            The following string values are supported for the xfmt or yfmt arguments:
             - "db20" : `20 * np.log10(...)`
             - "db10" : `10 * np.log10(...)`
             - "abs"  : `np.abs(...)`
@@ -1523,6 +1525,10 @@ class ldarray(np.ndarray):
         yfmt : (np.ndarray) -> np.ndarray, optional
             String value that determines how to format the y-axis data before plotting. 
             An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+        zfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the z-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 2D numpy array and returns a formatted array.
 
 
         **kwargs

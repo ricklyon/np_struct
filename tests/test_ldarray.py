@@ -1,5 +1,5 @@
 import unittest
-from np_struct import ldarray, Coords
+from np_struct import ldarray, Coords, utils
 import numpy as np
 from numpy import testing as npt
 import datetime as dt
@@ -41,6 +41,43 @@ class TestLdArray(unittest.TestCase):
         ld_2 = ld[np.array([1, 0]), 0]
         npt.assert_array_equal(ld_2, data[np.array([1, 0]), 0])
         npt.assert_array_equal(ld_2.coords["a"], [1, 0])
+
+    def test_ldarray_indexing(self):
+        # test index values that are ldarrays
+
+        coords = dict(a=np.arange(3), b=np.arange(10, 16), c=np.arange(3))
+        data = np.arange(54).reshape(3, 6, 3)
+        ld = ldarray(data, coords=coords)
+
+        # index must include all coordinates and have the same shape as the data,
+        # except the indexing dimension (in this case "b")
+        idx_v = np.ones((3, 2, 2, 3)) * 10
+        idx_v[0, 0, :] = 12
+        idx_v[2, 1, :] = 11
+
+        idx = ldarray(idx_v, coords=dict(a=np.arange(3), new1=[12, 11], new2=[6, 7], c=np.arange(3)))
+        result = ld.sel(b=idx)
+
+        # both values of new2 axis should be at b=12 for the a=0, new1=12 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=12)[0], ld.sel(a=0, b=12))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=12)[1], ld.sel(a=0, b=12))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=11)[0], ld.sel(a=0, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=11)[1], ld.sel(a=0, b=10))
+
+        # both new1 and new2 should be at b=10 for the a=1 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=1)[0, 0], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[1, 0], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[0, 1], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[1, 1], ld.sel(a=1, b=10))
+
+        # both values of new 2 should be at b=11 for the a=2, new1=11 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=12)[0], ld.sel(a=2, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=12)[1], ld.sel(a=2, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=11)[0], ld.sel(a=2, b=11))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=11)[1], ld.sel(a=2, b=11))
+
+        self.assertTrue(utils.check_coords(result.coords, idx.coords), "coords are not equal.")
+
 
     def test_float_index(self):
 
