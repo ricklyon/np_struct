@@ -1461,7 +1461,11 @@ class ldarray(np.ndarray):
 
             ymin = ax.get_ylim()[0] if ymin is None else ymin
             ymax = ax.get_ylim()[1] if ymax is None else ymax
-            ax.set_ylim((ymin, ymax))
+
+            try:
+                ax.set_ylim((ymin, ymax))
+            except:
+                pass
             
             # if polar axes, add the ylabel to the last tick marker
             if ax.name == "polar":
