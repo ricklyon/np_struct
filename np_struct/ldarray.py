@@ -970,7 +970,7 @@ class ldarray(np.ndarray):
             decimal precision of interpolation, default is 6 decimal places.
         flat : bool, default: False
             flattens all coords into a pairwise interpolation if True. Default is False, which creates 
-            a meshgrid interpolation across all coords.
+            a grid interpolation across all coords.
         **coords
             coordinate values to interpolate at. Each value is typically a 1D vector of coordinate values, but
             multi-dimensional arrays are also supported if they are provided as an ldarray. The interpolated
@@ -1158,20 +1158,24 @@ class ldarray(np.ndarray):
         )
 
 
-    def interpolate_2d(self, flat: bool = False, **coords):
+    def interpolate_from_flat(self, flat: bool = False, **coords):
         """
-        Interpolate data along two dimensions. Supports interpolating a flattened dimension if
-        the pairwise coordinates are in the attributes. 
+        Interpolate pairwise, flattened dimensions. Two (and only two) interpolation dimensions are supported.
+        The pairwise coordinates must be present in the attributes. 
 
         Parameters
         ----------
         **coords
-            coordinate values to interpolate at. 
+            coordinate values to interpolate at. If dimension is "uv", interpolated coords must be
+            "u" and "v".
+
+        flat: bool, default: False
+            if False (default), the data is returned as a meshgrid of the two interpolation coordinates.
+            If True, the data is returned as pairwise points of the interpolation coordinate. 
 
         Examples
         --------
         """
-
 
         interp_keys = list(coords.keys())
         interp_v1, interp_v2 = [np.atleast_1d(v) for v in coords.values()]
@@ -1179,8 +1183,8 @@ class ldarray(np.ndarray):
         if len(interp_keys) != 2:
             raise ValueError("Requires a pair of interpolation coordinates.")
 
-        # ensure shape of coords matches
-        if interp_v1.shape != interp_v2.shape:
+        # ensure shape of coords matches if flat
+        if (len(interp_v1.shape) > 1) and (interp_v1.shape != interp_v2.shape):
             raise ValueError("Interpolation coordinates must have equal shapes.")
 
         # coords must be labeled if more than 1D 
