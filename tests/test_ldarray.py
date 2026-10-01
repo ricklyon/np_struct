@@ -1,10 +1,13 @@
 import unittest
-from np_struct import ldarray, Coords
+from np_struct import ldarray, Coords, utils
 import numpy as np
 from numpy import testing as npt
 import datetime as dt
 from dateutil import relativedelta as rdt    
 import os
+
+from scipy import ndimage
+import numpy as np
 
 
 class TestLdArray(unittest.TestCase):
@@ -38,6 +41,7 @@ class TestLdArray(unittest.TestCase):
         ld_2 = ld[np.array([1, 0]), 0]
         npt.assert_array_equal(ld_2, data[np.array([1, 0]), 0])
         npt.assert_array_equal(ld_2.coords["a"], [1, 0])
+
 
     def test_float_index(self):
 
@@ -146,7 +150,7 @@ class TestLdArray(unittest.TestCase):
         np.testing.assert_array_almost_equal(ld_int.sel(a="exp(t)"), np.exp(1j * t_int), decimal=2)
         np.testing.assert_array_almost_equal(ld_int.sel(a="exp(0.5t)"), np.exp(0.5 * 1j * t_int), decimal=2)
 
-    def test_interpolation_2d(self):
+    def test_ldarray_indexing(self):
         coords = dict(a=[1, 2], b=['data1', 'data2', 'data3'])
         ld = ldarray([[10, 8, 6], [0, 2, 4]], coords=coords)
 
@@ -166,6 +170,42 @@ class TestLdArray(unittest.TestCase):
         np.testing.assert_array_equal(data.coords["b"], coords["b"])
         np.testing.assert_array_equal(data.coords["x"], [0, 1])
         np.testing.assert_array_equal(data.coords["y"], [0, 1])
+
+    def test_ldarray_indexing2(self):
+        # test index values that are ldarrays
+
+        coords = dict(a=np.arange(3), b=np.arange(10, 16), c=np.arange(3))
+        data = np.arange(54).reshape(3, 6, 3)
+        ld = ldarray(data, coords=coords)
+
+        # index must include all coordinates and have the same shape as the data,
+        # except the indexing dimension (in this case "b")
+        idx_v = np.ones((3, 2, 2, 3)) * 10
+        idx_v[0, 0, :] = 12
+        idx_v[2, 1, :] = 11
+
+        idx = ldarray(idx_v, coords=dict(a=np.arange(3), new1=[12, 11], new2=[6, 7], c=np.arange(3)))
+        result = ld.sel(b=idx)
+
+        # both values of new2 axis should be at b=12 for the a=0, new1=12 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=12)[0], ld.sel(a=0, b=12))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=12)[1], ld.sel(a=0, b=12))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=11)[0], ld.sel(a=0, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=0, new1=11)[1], ld.sel(a=0, b=10))
+
+        # both new1 and new2 should be at b=10 for the a=1 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=1)[0, 0], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[1, 0], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[0, 1], ld.sel(a=1, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=1)[1, 1], ld.sel(a=1, b=10))
+
+        # both values of new 2 should be at b=11 for the a=2, new1=11 dimension
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=12)[0], ld.sel(a=2, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=12)[1], ld.sel(a=2, b=10))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=11)[0], ld.sel(a=2, b=11))
+        np.testing.assert_array_almost_equal(result.sel(a=2, new1=11)[1], ld.sel(a=2, b=11))
+
+        self.assertTrue(utils.check_coords(result.coords, idx.coords), "coords are not equal.")
 
     def test_interpolation_nan(self):
         t = np.linspace(0, 2 * np.pi, 21)
@@ -190,6 +230,46 @@ class TestLdArray(unittest.TestCase):
         ld = ldarray(data, coords = dict(a=0, t=t))
 
         np.testing.assert_array_almost_equal(ld.interpolate(a=[-1e-7], t=t_int)[0], np.sin(t_int), decimal=2)
+
+    def test_interpolation_flat(self):
+        # avoid interpolating at the endpoints, it's close to the right value but hard to test exactly
+        t = np.linspace(0, 2 * np.pi, 21)
+
+        data = np.array([np.sin(t), np.cos(t)])
+        ld = ldarray(data, coords = dict(a=["sin", "cos"], t=t))
+
+        coords = dict(t = [0, 3, 6], a=["sin", "sin", "cos"])
+        ld.interpolate(**coords, flat=True)
+
+    def test_interpolate_2d(self):
+        # test 2d interpolator on flattened data
+        u = np.linspace(-1, 1, 21)
+        v = np.linspace(-1, 1, 21)
+
+        u_m, v_m = np.meshgrid(u, v)
+        z = np.cos(u_m) * np.cos(v_m)
+
+        data = ldarray(z, coords=dict(u=u, v=v))
+
+        u_int = np.linspace(-1, 1, 141)
+        v_int = np.linspace(-1, 1, 141)
+
+        # interpolate_from_flat should work on meshgrid data as well. It is slower and not as accurate, but
+        # should be reasonably close
+        d1 = data.interpolate(u=u_int, v=v_int)
+        d2 = data.interpolate_from_flat(u=u_int, v=v_int)
+        np.testing.assert_array_less(np.mean(np.abs(d1 - d2)), 0.002)
+
+        # interpolate with pairwise points
+        data_flat = data.interpolate(u=u_m.flatten(), v=v_m.flatten(), flat=True)
+
+        np.testing.assert_array_almost_equal(np.reshape(data_flat, (21, 21)), data)
+        # flattened coords should be labeled 0-N, where N is the number of pairwise points
+        np.testing.assert_array_almost_equal(data_flat.uv, np.arange(21*21))
+
+        # interpolate the flattened data to get back to the original data
+        data_round_trip = data_flat.interpolate_from_flat(u=u, v=v)
+        np.testing.assert_array_almost_equal(data_round_trip, data)
 
     def test_save(self):
         

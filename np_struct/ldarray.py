@@ -1,24 +1,17 @@
 import numpy as np
 import datetime as dt
-from scipy import interpolate, ndimage
-from scipy.interpolate import interp1d
+from scipy import ndimage
+from scipy import interpolate
 from collections import OrderedDict
 from copy import deepcopy as dcopy
 import datetime
-from itertools import chain
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from itertools import product
 
-def check_shapes(a: tuple, b: tuple):
-    """ 
-    Check that the shape tuples a and b match
-    """
+from np_struct import utils
 
-    if len(a) != len(b):
-        return False
-    
-    # check that the length of each dimension matches
-    return all([a[i] == b[i] for i in range(len(a))])
-
+if TYPE_CHECKING:
+    from matplotlib import axes
 
 def datetime_idx_handler(v: datetime.datetime, coords: np.ndarray):
     """
@@ -350,12 +343,19 @@ class ldarray(np.ndarray):
 
     def __new__(cls, data=None, coords=None, attrs= dict(), dtype=None):
 
+        # if coords is not provided, attempt to use coords from data
+        if coords is None and isinstance(data, ldarray):
+            coords = data.coords
+
         # cast coords as a OrderedDictionary type
-        if not isinstance(coords, Coords):
+        if coords is not None and not isinstance(coords, Coords):
             coords = Coords(**coords)
             
         # create 0 filled array if no data is given in the constructor
         if data is None:
+            if coords is None:
+                raise ValueError("Coords must be provided.")
+            
             obj = np.zeros(coords.shape, dtype=dtype).view(cls)
 
         # cast input data to ldarray type
@@ -368,8 +368,8 @@ class ldarray(np.ndarray):
             obj = obj.view(cls)
 
             # If dim is not compatible with the data shape return a standard numpy array
-            if (coords is None) or (not check_shapes(obj.shape, coords.shape)):
-                raise TypeError(
+            if (coords is not None) and (not utils.check_shapes(obj.shape, coords.shape)):
+                raise ValueError(
                     "Coordinates of shape {} are not compatible with data of shape {}.".format(coords.shape, obj.shape)
                 )
 
@@ -419,8 +419,8 @@ class ldarray(np.ndarray):
         obj = super().__array_function__(func, types, args, kwargs)
 
         # recast as ldarray if return type is ndarray
-        if isinstance(obj, np.ndarray) and not isinstance(obj, ldarray) and check_shapes(obj.shape, self.shape):
-            obj = ldarray(obj, coords=self.coords)
+        if isinstance(obj, np.ndarray) and not isinstance(obj, ldarray) and utils.check_shapes(obj.shape, self.shape):
+            obj = ldarray(obj, coords=self.coords, attrs=self.attrs)
 
         # remove axis from coords if it was indexed out by np.sum, np.average, etc...
         elif isinstance(obj, np.ndarray) and axis is not None and len(obj.shape) == (len(self.shape) - len(axis)):
@@ -429,7 +429,7 @@ class ldarray(np.ndarray):
             keys = tuple(self.coords.keys())
             [coords.pop(keys[i]) for i in axis]
             # recast as labeled array
-            obj = ldarray(obj, coords=coords)
+            obj = ldarray(obj, coords=coords, attrs=self.attrs)
 
         # invalidate coords for functions capable of leaving the shape intact but permuting the axis
         # order. transpose is subclassed separately and not included here.
@@ -448,8 +448,9 @@ class ldarray(np.ndarray):
         # array finalize is called when array is cast to a new type, indexed, or whenever a new array with a different
         # shape is created (i.e. transpose). By default, drop the coordinates which are most likely out of date now.
         # Coordinates will be added back by lower level functions if the shape stayed the same.
-        if isinstance(obj, ldarray) and getattr(obj, "coords", None) and check_shapes(self.shape, obj.coords.shape):
+        if isinstance(obj, ldarray) and getattr(obj, "coords", None) and utils.check_shapes(self.shape, obj.coords.shape):
             self.coords = dcopy(obj.coords)
+            self.attrs = dcopy(obj.attrs)
         else:
             self.coords = None
 
@@ -533,13 +534,14 @@ class ldarray(np.ndarray):
 
         # if the shapes of the inputs were expanded, restore the full expanded coordinates if the shape
         # is still consistent.
-        elif len(result_coords) and check_shapes(results.shape, Coords(**result_coords).shape):
-            results = ldarray(results, coords=result_coords)
+        elif len(result_coords) and utils.check_shapes(results.shape, Coords(**result_coords).shape):
+            results = ldarray(results, coords=result_coords, attrs=self.attrs)
 
         # if the shape is the same after the math operation, restore the coordinates
-        elif self.coords and check_shapes(results.shape, self.coords.shape):
+        elif self.coords and utils.check_shapes(results.shape, self.coords.shape):
             results = results.view(ldarray)
             results.coords = dcopy(self.coords)
+            results.attrs = dcopy(self.attrs)
 
         else:
             results = results.view(np.ndarray)
@@ -606,7 +608,16 @@ class ldarray(np.ndarray):
         # index is a standard index of slices or integers so pass key to the numpy indexing routine.
         # this object will have the coords set to None by __array_finalize___
         obj = super(ldarray, self).__getitem__(key)
+
+        # Cast index key as a tuple if it's a single value
+        nkey = tuple(key) if isinstance(key, (tuple, list)) else (key,)
         
+        # use coords from advanced index
+        labeled_idx = [k for k in nkey if isinstance(k, ldarray) and utils.check_shapes(k.shape, obj.shape)]
+        if len(labeled_idx):
+            obj.coords = dcopy(labeled_idx[0].coords)
+            return obj
+
         # shape length can be greater after indexing if np.newaxis was used. In this case just
         # return a standard numpy array and make the user responsible for adding dimensional labels.
         if len(obj.shape) > len(self.shape):
@@ -623,13 +634,11 @@ class ldarray(np.ndarray):
         # At this point, we need to index the dimension dictionary so it matches the obj data,
         # and remove axis that were indexed out completely.
         try:
-            # Cast index key as a tuple if it's a single value
-            nkey = tuple(key) if isinstance(key, (tuple, list)) else (key,)
 
             # Initialize list of indices for each dimension that will be used to index the label arrays in dim. 
             # Length is the original array shape length so it matches ndim.
             idx = [slice(None,None) for i in range(len(self.shape))]
-            
+
             # step through index keys and update idx with the appropriate keys.
             # Keys are always in order of the array dimensions, but axis can be skipped with the Ellipsis operator.
             idx_i = 0 
@@ -656,14 +665,15 @@ class ldarray(np.ndarray):
                     # idx has a value for every dimension so we can use i to get the correct index key
                     ncoords[k] = np.array(v)[idx[i]].squeeze()
 
-            # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data
-            if not check_shapes(obj.shape, ncoords.shape):
+            # revert to standard numpy array if we weren't able to keep coords consistent with the numpy array data.
+            # This commonly happens with advanced indexing (or pair-wise indexing)
+            if not utils.check_shapes(obj.shape, ncoords.shape):
                 return obj.view(np.ndarray)
 
             # if dim and the obj shape match, update the dim member of the indexed obj and return
             obj.coords = ncoords
             return obj
-        
+            
         # if the coords were unable to be indexed, clear the coords and return a unlabeled numpy array.
         except Exception:
             obj.coords = None
@@ -796,9 +806,17 @@ class ldarray(np.ndarray):
 
             # convert coordinate to standard index
             if isinstance(v, (list, tuple, np.ndarray)):
+                v = np.atleast_1d(v)
                 # get standard indices for each value in list
-                np_index[np_i] = [handler(vv, coords_k, **handler_kwargs) for vv in v]
-                    
+                np_index[np_i] = np.reshape([handler(vv, coords_k, **handler_kwargs) for vv in v.flatten()], v.shape)
+                # recast as labeled array
+                if isinstance(v, ldarray):
+                    np_index[np_i] = ldarray(np_index[np_i], v.coords)
+                # cast single valued arrays as slices, this preserves the dimension
+                if np_index[np_i].size == 1:
+                    idx_v = np_index[np_i].item()
+                    np_index[np_i] = slice(idx_v, idx_v+1)
+
             elif isinstance(v, slice):
                 # call handler for each start, stop and step value
                 s_start, s_stop = [handler(vv, coords_k, **handler_kwargs) if vv is not None else None for vv in [v.start, v.stop]]
@@ -812,27 +830,67 @@ class ldarray(np.ndarray):
 
         # if more than one index is a list or array, numpy does pair-wise indexing. Otherwise, we can return the 
         # indices as is.
-        if np.count_nonzero([isinstance(idx, list) for idx in np_index]) <= 1:
+        # shape of each index
+        is_idx_2d = [len(idx.shape) > 1 if isinstance(idx, (np.ndarray)) else False for idx in np_index]
+        is_idx_vector = [len(idx) > 1 if isinstance(idx, (list, tuple, np.ndarray)) else False for idx in np_index]
+
+        if np.any(is_idx_2d):
+            # create advanced pairwise indices (or advanced indices). Every index is an array of the same shape,
+            # or will be broadcast together so they are the same shape. The indexing arrays must be labeled
+            # and have all the dimensions present, minus the dimension it is selecting.
+
+            # get the first 2D matrix index
+            idx_2d = np_index[is_idx_2d.index(1)]
+            result_shape = idx_2d.shape
+
+            # check that it is labeled
+            if not isinstance(idx_2d, ldarray):
+                raise ValueError("Matrix indices must be labeled numpy arrays with all dimensions present.")
+
+            for i, idx in enumerate(np_index):
+
+                # create matrix indices for dimensions left with full slices (:)
+                if isinstance(np_index[i], slice):
+
+                    key = dim_keys[i]
+    
+                    start = 0 if idx.step is None else idx.start
+                    stop = self.shape[i] if idx.stop is None else idx.stop + 1
+                    step = 1 if idx.step is None else idx.step
+
+                    idx_b = [None] * len(result_shape)
+                    # place of index in the result array
+                    result_place = list(idx_2d.coords.keys()).index(key)
+                    idx_b[result_place] = slice(None)
+                    # add extra dimensions
+                    np_index[i] = np.array(np.arange(start, stop, step))[tuple(idx_b)] 
+
+            # return a meshgrid of index values, the resulting array when this index is used will have the same
+            # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
+            # the shapes are compatible. 
+            return tuple([np.broadcast_to(m, result_shape) for m in np_index])
+
+        # if more than one index is a vector, advanced indexing is used. Broadcast the indices together.
+        elif np.count_nonzero(is_idx_vector) > 1:
+
+            for i, idx in enumerate(np_index):
+                # convert slice indices to a range of indices
+                if isinstance(np_index[i], slice):
+
+                    start = 0 if idx.step is None else idx.start
+                    stop = self.shape[i] if idx.stop is None else idx.stop + 1
+                    step = 1 if idx.step is None else idx.step
+
+                    np_index[i] = np.arange(start, stop, step)
+
+                else:
+                    np_index[i] = np.atleast_1d(idx)
+
+            return np.ix_(*np_index)
+
+        else:
             return tuple(np_index)
-        
-        # create pairwise indices. 
-        for i, idx in enumerate(np_index):
-            # convert slice indices to a range of indices
-            if isinstance(np_index[i], slice):
 
-                start = 0 if idx.step is None else idx.start
-                stop = self.shape[i] if idx.stop is None else idx.stop + 1
-                step = 1 if idx.step is None else idx.step
-
-                np_index[i] = np.arange(start, stop, step)
-
-            else:
-                np_index[i] = np.atleast_1d(idx)
-
-        # return a meshgrid of index values, the resulting array when this index is used will have the same
-        # shape as each array in the axis positions. np.ix_ doesn't perform a full meshgrid broadcast, but ensures
-        # the shapes are compatible. 
-        return np.ix_(*np_index)
 
     def save(self, filepath: str):
         """
@@ -886,6 +944,7 @@ class ldarray(np.ndarray):
         prefilter: bool = True,
         dtype: np.dtype = None,
         precision: int = 6,
+        flat: bool = False,
         **coords, 
     ):
         """
@@ -909,6 +968,9 @@ class ldarray(np.ndarray):
             unexpected results if interpolating an integer array. 
         precision : int, optional
             decimal precision of interpolation, default is 6 decimal places.
+        flat : bool, default: False
+            flattens all coords into a pairwise interpolation if True. Default is False, which creates 
+            a grid interpolation across all coords.
         **coords
             coordinate values to interpolate at. Each value is typically a 1D vector of coordinate values, but
             multi-dimensional arrays are also supported if they are provided as an ldarray. The interpolated
@@ -964,11 +1026,18 @@ class ldarray(np.ndarray):
         data = np.nan_to_num(self)
         
         coords = {k: np.atleast_1d(v) for k, v in coords.items()}
+        v0 = list(coords.values())[0]
 
+        if flat:
+            if not np.all([len(v) == len(v0) for v in coords.values()]):
+                raise ValueError("All pair-wise interpolation coords must be equal length.")
+            
         # coordinate keys that are specified as meshgrids
         mg_keys = [k for k in self.coords.keys() if k in coords.keys() and len(coords[k].shape) > 1]
         # dimension indices for all coordinates that are single vectors and not meshgrids
         vector_idx = [i for i, k in enumerate(self.coords.keys()) if k not in mg_keys]
+        # dimensions that do not have interp coords
+        missing_idx = [i for i, k in enumerate(self.coords.keys()) if k not in coords.keys()]
 
         # check that all meshgrid indices have the same shape
         if len(mg_keys):
@@ -977,17 +1046,8 @@ class ldarray(np.ndarray):
                 raise ValueError("All meshgrid indices must be the same shape.")
 
             # all meshgrids must be labeled with the same coordinates
-            if not all([isinstance(coords[k], ldarray) and coords[k].coords == m0.coords for k in mg_keys]):
-                raise ValueError("All meshgrid indices must labeled arrays with identical coordinates.")
-
-        # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
-        # followed by the meshgrid shape. 
-        dim_keys = list(self.coords.keys())
-        interp_shape = tuple(
-            [self.shape[i] if dim_keys[i] not in coords.keys() else len(coords[dim_keys[i]]) for i in vector_idx]
-        )
-        if len(mg_keys):
-            interp_shape += m0.shape
+            if not isinstance(m0, ldarray):
+                raise ValueError("Meshgrid indices must labeled arrays with identical coordinates.")
 
         # Start with list of slices that index the full range of each dimension. 
         # dimensions that are not included in coords will be left as a full vector of all indices in
@@ -1019,20 +1079,37 @@ class ldarray(np.ndarray):
 
             # get the floating point "index" by interpolation for each coordinate value.
             else:
-                coord_interp = interp1d(coords_k, np.arange(0, self.shape[np_i]), assume_sorted=False, kind="linear")
+                coord_interp = interpolate.interp1d(
+                    coords_k, np.arange(0, self.shape[np_i]), assume_sorted=False, kind="linear"
+                )
                 interp_index[np_i] = coord_interp(np.around(v, decimals=precision))
 
         # map_coordinates work similarly as numpy advanced indexing, where the index for each dimension can
         # be an matrix. The matrices must all be the same shape, so broadcast the matrices/vectors in interp_index
         # across each other. The number of interpolated dimensions does not need to be the same as the array dimensions.
         interp_index_b = [None] * self.ndim
-        v_i = 0
 
+        if flat:
+            # interpolated shape is the shape of the dimensions that are not in the interp coordinates, 
+            # plus the flat interpolated vector.
+            interp_shape = [len(v) for k, v in self.coords.items() if k not in coords.keys()] + [len(v0)]
+
+
+        else:
+            # interpolated shape is the length of each data coordinates that are given as vectors (or not included),
+            # followed by the meshgrid shape. 
+
+            interp_shape = tuple(
+                [self.shape[i] if dim_keys[i] not in coords.keys() else len(coords[dim_keys[i]]) for i in vector_idx]
+            )
+            if len(mg_keys):
+                interp_shape += m0.shape
+
+        v_i = 0
         for i in range(self.ndim):
 
-            # for vector indices, add dimensions for all the other vector dimensions, as well as the meshgrid
-            # dimensions.
-            if i in vector_idx:
+            # for vector indices, add dimensions for all the other dimensions
+            if (flat and i in missing_idx) or (not flat and i in vector_idx):
                 # select current dimension in the interpolated shape by adding a ":" in the dimension list.
                 # the vector indices are stacked at the front of the interpolated shape, regardless of where
                 # they appear in the array dimensions (use v_i instead of i to select dimension)
@@ -1041,9 +1118,12 @@ class ldarray(np.ndarray):
                 # add extra dimensions
                 interp_index_b[i] = np.array(interp_index[i])[tuple(idx_b)] 
                 v_i += 1
-            # for meshgrid indices, add extra dimensions for the vector dimensions at the beginning of the array
+                
+            # for meshgrid indices or flattened dimensions, add extra dimensions for the vector dimensions 
+            # at the beginning of the array.
             else:
-                interp_index_b[i] = interp_index[i][tuple([None] * v_i)]
+                interp_index_b[i] = interp_index[i][tuple([None] * v_i)] if v_i else interp_index[i]
+
 
         # map_coordinates doesn't broadcast the indices like numpy does for advanced indexing. Broadcast 
         # index array to the same shape for each dimension.
@@ -1052,24 +1132,130 @@ class ldarray(np.ndarray):
         if dtype is None:
             dtype = self.dtype
 
-        data = ndimage.map_coordinates(
+        data_interp = ndimage.map_coordinates(
             data.astype(dtype), map_idx, output=output, order=order, mode=mode, cval=cval, prefilter=prefilter
         )
 
         data_coords = {}
+        attrs = dict()
         # add coordinates from vector indices
         for i, k in enumerate(self.coords.keys()):
-            if i in vector_idx:
+            if (flat and i in missing_idx) or (not flat and i in vector_idx):
                 data_coords[k] = coords[k] if k in coords.keys() else self.coords[k]
 
         # add the coordinates from the meshgrid
         if len(mg_keys):
             data_coords.update(m0.coords)
 
+        # add the coordinates for the flattened dimensions
+        if flat:
+            flat_key = "".join(coords.keys())
+            data_coords[flat_key] = np.arange(len(v0))
+            attrs = {k: v for k, v in coords.items()}
+
         return ldarray(
-            data, coords=data_coords
+            data_interp, coords=data_coords, attrs=attrs
         )
 
+
+    def interpolate_from_flat(self, flat: bool = False, **coords):
+        """
+        Interpolate pairwise, flattened dimensions. Two (and only two) interpolation dimensions are supported.
+        The pairwise coordinates must be present in the attributes. 
+
+        Parameters
+        ----------
+        **coords
+            coordinate values to interpolate at. If dimension is "uv", interpolated coords must be
+            "u" and "v".
+
+        flat: bool, default: False
+            if False (default), the data is returned as a meshgrid of the two interpolation coordinates.
+            If True, the data is returned as pairwise points of the interpolation coordinate. 
+
+        Examples
+        --------
+        """
+
+        interp_keys = list(coords.keys())
+        interp_v1, interp_v2 = [np.atleast_1d(v) for v in coords.values()]
+
+        if len(interp_keys) != 2:
+            raise ValueError("Requires a pair of interpolation coordinates.")
+
+        # ensure shape of coords matches if flat
+        if (len(interp_v1.shape) > 1) and (interp_v1.shape != interp_v2.shape):
+            raise ValueError("Interpolation coordinates must have equal shapes.")
+
+        # coords must be labeled if more than 1D 
+        if len(interp_v1.shape) > 1 and not isinstance(interp_v1, ldarray):
+            raise ValueError("Interpolation coordinates must be labeled numpy arrays if greater than 1D.")
+
+        if flat:
+            if not len(interp_v1) == len(interp_v1):
+                raise ValueError("All pair-wise interpolation coords must be equal length.")
+            
+        # get data coordinates for both interpolated dimensions
+        if all([k in self.coords.keys() for k in interp_keys]):
+            data = self.transpose((*interp_keys, ...))
+            data_coords_m = np.meshgrid(*[self.coords[k] for k in interp_keys], indexing="ij")
+            # flatten and stack mesh so coords are Nx2
+            data_coords = np.stack(data_coords_m, axis=-1).reshape((-1, 2))
+            # flatten interpolated coords in data
+            data = np.reshape(data, (len(data_coords), *data.shape[2:]))
+
+        # if data coordinates are flattened into one dimensions, use the attributes to create Nx2 positions
+        elif "".join(interp_keys) in self.coords.keys():
+            data = self.transpose(("".join(interp_keys), ...))
+            data_coords = np.stack([self.attrs[k] for k in interp_keys], axis=-1)
+
+        else:
+            raise ValueError(f"Unable to interpolate coordinates {list(self.coords.keys())}")
+
+        # create interpolator, this does handle complex data but performs better if interpolation is done
+        # on magnitude and angle separately.
+        # set any nan values to 0
+        data = np.nan_to_num(data)
+        # leave extrapolated values at nan
+        abs_data = np.abs(data)
+        interp_func_mag = interpolate.CloughTocher2DInterpolator(data_coords, abs_data, fill_value=np.nan)
+        interp_func_phasor = interpolate.CloughTocher2DInterpolator(data_coords, data / abs_data, fill_value=np.nan)
+
+        # stack coordinates so shape is ..., 2
+        if len(interp_v1.shape) > 1 or flat:
+            interp_pos = np.stack((interp_v1, interp_v2), axis=-1).reshape((-1, 2))
+        else:
+            interp_pos_m = np.meshgrid(interp_v1, interp_v2, indexing="ij")
+            interp_pos = np.stack(interp_pos_m, axis=-1).reshape((-1, 2))
+
+        # create result coords
+        if flat:
+            interp_coords = {"".join(coords.keys()): np.arange(0, len(interp_v1))}
+        # interpolated coords are the same as the argument coords if a meshgrid was passed in
+        elif len(interp_v1.shape) > 1:
+            interp_coords = interp_v1.coords
+        # otherwise use the argument values as coords
+        else:
+            interp_coords = coords
+
+        # evaluate interpolation
+        with np.errstate(all="ignore"):
+            phasor = interp_func_phasor(interp_pos)
+            data_interp = interp_func_mag(interp_pos) * (phasor / np.abs(phasor))
+
+        interp_data = ldarray(
+            data_interp.reshape(*[len(v) for v in interp_coords.values()], *data.shape[1:]),
+            coords = dict(
+                **interp_coords, **{k: v for k, v in self.coords.items() if k not in (*interp_keys, "".join(interp_keys))}
+            )
+        )
+
+        # add flattened coordinates as attributes
+        if flat:
+            interp_data.attrs = {k: v for k, v in coords.items()}
+
+        return interp_data
+    
     @classmethod
     def load(cls, filepath: str, **kwargs):
         """
@@ -1153,6 +1339,260 @@ class ldarray(np.ndarray):
 
         return ldarray(super().transpose(order_idx), coords=coords)
 
-            
-            
+    def plot(
+        self,
+        xaxis: str = None,
+        xfmt: str = "real",
+        yfmt: str = "real",
+        legend: bool = True,
+        ax  = None,
+        lines = None,
+        ymin: float = None,
+        ymax: float = None,
+        format_axes: bool = True,
+        **kwargs
+    ):
+        """
+        Create line plot for labeled numpy array. 
 
+        Parameters
+        ----------
+        xaxis : str, optional
+            dimension to plot along the x-axis, chooses the first dimension if not provided.
+
+        ax : plt.Axes, optional
+            matplotlib axes object
+
+        xfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the x-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+            The following string values are supported for the xmft or yfmt arguments:
+            - "db20" : `20 * np.log10(...)`
+            - "db10" : `10 * np.log10(...)`
+            - "abs"  : `np.abs(...)`
+            - "mag"  : `np.abs(...)`
+            - "deg"  : `np.angle(..., deg=True)`
+            - "rad"  : `np.angle(..., deg=False)`
+            - "angle": `np.angle(..., deg=False)`
+            - "real" : `np.real(...)`
+            - "imag" : `np.imag(...)`
+            - "deg2rad" : `np.deg2rad(...)`
+            - "rad2deg" : `np.rad2deg(...)`
+
+        yfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the y-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+        **kwargs
+            keys that are in coordinates are passed to .sel(). Remaining kwargs are passed to ax.plot()
+
+        """
+
+        # create axes if one is not provided
+        if ax is None:
+            import matplotlib.pyplot as plt
+            ax = plt.gca()
+
+        # plot along first dimension by default
+        if xaxis is None:
+            xaxis = list(self.coords.keys())[0]
+
+        # select a format function from one of the defaults if provided as a string
+        ylabel = ""
+        yfmt_str = yfmt
+        if isinstance(yfmt, str):
+            ylabel = yfmt
+            yfmt = utils.DATA_FMT_FUNC[yfmt]
+
+        if isinstance(xfmt, str):
+            xfmt = utils.DATA_FMT_FUNC[xfmt]
+
+        # xaxis coords
+        xaxis_coords = xfmt(self.coords[xaxis])
+
+        # select data
+        sel_coords = {k: np.atleast_1d(kwargs.pop(k)) for k in self.coords.keys() if k in kwargs.keys()}
+        data = self.sel(**sel_coords)
+
+        # coords with more than one value (other than the x-axis)
+        other_coords = {k: v for k, v in data.coords.items() if k != xaxis and len(v) > 1}
+        # coords with only one value, these will not be included in legend since they're the same for all lines
+        unitary_coords = {k: v for k, v in data.coords.items() if k != xaxis and len(v) == 1}
+        # label for title with all unitary coords
+        unitary_label = ", ".join([utils.format_label(k, v.item()) for k, v in unitary_coords.items()])
+
+        # all combinations of coordinates
+        combinations = list(product(*other_coords.values()))
+
+        lines_new = []
+
+        for i, comb_i in enumerate(combinations):
+            # get single combination, only dimension should be x-axis
+            coords_dict = {k: comb_i[i] for (i, k) in enumerate(other_coords.keys())}
+            ln_data = data.sel(**coords_dict).squeeze()
+
+            # update line data if lines were provided
+            if lines is not None:
+                lines[i].set_ydata(yfmt(ln_data))
+            # add lines to plot
+            else:
+                # build legend label
+                label = ", ".join([utils.format_label(k, v) for k, v in coords_dict.items()])
+                lines_new += ax.plot(xaxis_coords, yfmt(ln_data), label=label, **kwargs)
+
+        if lines is None and format_axes:
+
+            if legend and len(combinations) > 1 and len(combinations) < 7:
+                ax.legend()
+
+            ax.set_xlabel(xaxis)
+            ax.set_title(f"{unitary_label}", fontsize="medium")
+            ax.grid(True)
+
+            # set upper/lower limit to a multiple of 5 for dB plot.
+            if yfmt_str in ("db20", "db10"):
+                if ymax is None:
+                    ymax = np.ceil(np.nanmax(yfmt(data)) / 5) * 5
+                if ymin is None:
+                    ymin = np.floor(np.nanmin(yfmt(data)) / 5) * 5
+                    # clip to - 40dB range
+                    ymin = np.clip(ymin, ymax - 40, None)
+
+            ymin = ax.get_ylim()[0] if ymin is None else ymin
+            ymax = ax.get_ylim()[1] if ymax is None else ymax
+
+            try:
+                ax.set_ylim((ymin, ymax))
+            except:
+                pass
+            
+            # if polar axes, add the ylabel to the last tick marker
+            if ax.name == "polar":
+                ax.set_theta_zero_location('N') 
+                ax.set_theta_direction(-1) 
+
+                # polar always interprets the data in radians, set the plot range to be from -180° to 180°.
+                ax.set_thetalim(-np.pi, np.pi)
+                ax.set_thetagrids(range(-180, 180, 45))
+                ax.tick_params(labelsize='small')
+
+                # add label to last tick marker
+                labels = [f"{t:.0f}" for t in ax.get_yticks()]
+                labels[-1] += ("dB" if yfmt_str in ("db20", "db10") else ylabel[:3])
+                ax.set_yticks(ax.get_yticks(), labels) 
+
+            # setup cartesian axes limits
+            else:
+                ax.set_ylabel(ylabel)
+                ax.set_xlim([np.nanmin(xaxis_coords), np.nanmax(xaxis_coords)])
+
+            return lines_new
+        else:
+            return lines
+
+    def pcolormesh(
+        self,
+        xaxis: str,
+        yaxis: str,
+        xfmt: str = "real",
+        yfmt: str = "real",
+        zfmt: str = "real",
+        ax  = None,
+        mesh = None,
+        colorbar : dict = True,
+        **kwargs
+    ):
+        """
+        Create pcolormesh plot for labeled numpy array. 
+
+        Parameters
+        ----------
+        xaxis : str, optional
+            dimension to plot along the x-axis
+
+        yaxis : str, optional
+            dimension to plot along the y-axis
+
+        xfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the x-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+            The following string values are supported for the xfmt or yfmt arguments:
+            - "db20" : `20 * np.log10(...)`
+            - "db10" : `10 * np.log10(...)`
+            - "abs"  : `np.abs(...)`
+            - "deg"  : `np.angle(..., deg=True)`
+            - "rad"  : `np.angle(..., deg=False)`
+            - "angle": `np.angle(..., deg=False)`
+            - "real" : `np.real(...)`
+            - "imag" : `np.imag(...)`
+            - "deg2rad" : `np.deg2rad(...)`
+            - "rad2deg" : `np.rad2deg(...)`
+
+        yfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the y-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 1D numpy array and returns a formatted array.
+
+        zfmt : (np.ndarray) -> np.ndarray, optional
+            String value that determines how to format the z-axis data before plotting. 
+            An arbitrary function is also supported that accepts a 2D numpy array and returns a formatted array.
+
+
+        **kwargs
+            keys that are in coordinates are passed to .sel(). Remaining kwargs are passed to ax.pcolormesh()
+
+        """
+
+        # create axes if one is not provided
+        if ax is None:
+            import matplotlib.pyplot as plt
+            ax = plt.gca()
+
+        if colorbar is True:
+            colorbar = dict()
+
+        # select a format function from one of the defaults if provided as a string
+        zlabel = ""
+        if isinstance(zfmt, str):
+            zlabel = zfmt
+            zfmt = utils.DATA_FMT_FUNC[zfmt]
+
+        if isinstance(xfmt, str):
+            xfmt = utils.DATA_FMT_FUNC[xfmt]
+
+        if isinstance(yfmt, str):
+            yfmt = utils.DATA_FMT_FUNC[yfmt]
+
+        # select data
+        sel_coords = {k: np.atleast_1d(kwargs.pop(k)) for k in self.coords.keys() if k in kwargs.keys()}
+        data = self.sel(**sel_coords)
+
+        # data must have only 2 dimensions at this point
+        if data.squeeze().ndim != 2:
+            raise ValueError("Data must have only 2 dimensions.")
+        
+        # coords with only one value, these will not be included in legend since they're the same for all lines
+        unitary_coords = {k: v for k, v in data.coords.items() if k != xaxis and len(v) == 1}
+        # label for title with all unitary coords
+        unitary_label = ", ".join([utils.format_label(k, v.item()) for k, v in unitary_coords.items()])
+
+        data = data.squeeze().transpose((yaxis, xaxis))
+
+        # add new colormesh object to plot
+        if mesh is None:
+            mesh = ax.pcolormesh(xfmt(data.coords[xaxis]), yfmt(data.coords[yaxis]), zfmt(data), **kwargs)
+
+            if isinstance(colorbar, dict):
+                c_kwargs = dict(label=zlabel, **colorbar) if "label" not in colorbar.keys() else colorbar
+                ax.figure.colorbar(mesh, **c_kwargs)
+
+        # update existing colormesh
+        else:
+            mesh.set_array(zfmt(data))
+        
+        ax.set_xlabel(xaxis)
+        ax.set_title(f"{unitary_label}", fontsize="medium")
+        ax.set_ylabel(yaxis)
+
+        return mesh
