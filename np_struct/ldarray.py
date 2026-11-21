@@ -672,6 +672,7 @@ class ldarray(np.ndarray):
 
             # if dim and the obj shape match, update the dim member of the indexed obj and return
             obj.coords = ncoords
+            obj.attrs = dcopy(self.attrs)
             return obj
             
         # if the coords were unable to be indexed, clear the coords and return a unlabeled numpy array.

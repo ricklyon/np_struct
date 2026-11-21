@@ -326,5 +326,23 @@ class TestLdArray(unittest.TestCase):
 
         npt.assert_array_equal(new_ld[dict(j=1.201)], [10, 11])
 
+    def test_attribute_selection(self):
+
+        coords = dict(a=['data1', 'data2'], b=np.arange(0, 20, 0.2))
+        data = np.arange(200).reshape(2, 100)
+        attrs = dict(attr1="test1", attr2="...test2", attr3=np.array([9, 8]))
+        ld = ldarray(data, coords=coords, attrs=attrs)
+
+        # check that attributes are passed to the indexed copy of the array
+        ld_sel = ld.sel(a="data1")
+
+        # change the attribute on the original array and verify the copy isn't affected
+        ld.attrs["attr3"] = np.array([[8, 7]])
+
+        self.assertEqual(ld_sel.attr1, attrs["attr1"])
+        self.assertEqual(ld_sel.attr2, attrs["attr2"])
+        np.testing.assert_array_equal(ld_sel.attr3, attrs["attr3"])
+
+
 if __name__ == '__main__':
     unittest.main()
